@@ -49,7 +49,17 @@ export class PumpScene {
 
     this.camera = new THREE.PerspectiveCamera(36, 1, 0.05, 100);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    // A 100 px drag used to swing the view ~100° and keep coasting for ~1.5 s ("gira
+    // loca"). Slower rotation, short inertia and sensible limits keep it under control.
     this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.18;
+    this.controls.rotateSpeed = 0.45;
+    this.controls.zoomSpeed = 0.7;
+    this.controls.panSpeed = 0.6;
+    this.controls.minDistance = 2.5;
+    this.controls.maxDistance = 16;
+    this.controls.minPolarAngle = 0.15;
+    this.controls.maxPolarAngle = Math.PI - 0.15;
     this.resetCamera();
 
     const phys = (color, metalness, roughness, extra = {}) => new THREE.MeshPhysicalMaterial({ color, metalness, roughness, side: THREE.DoubleSide, ...extra });
@@ -60,6 +70,7 @@ export class PumpScene {
       glass: phys(0xbfd6ea, 0.0, 0.1, { transparent: true, opacity: 0.16, depthWrite: false }),
       front: phys(0x8e9aa6, 0.3, 0.5, { transparent: true, opacity: 0.22, depthWrite: false }),
       shaft: phys(0x6f7780, 0.7, 0.3),
+      ghostCasing: new THREE.MeshBasicMaterial({ color: 0x8e9aa6, transparent: true, opacity: 0.08, depthWrite: false, side: THREE.DoubleSide }),
       bubble: new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.1, transmission: 0.2, transparent: true, opacity: 0.9 }),
     };
 
@@ -272,7 +283,10 @@ export class PumpScene {
     pipe.rotation.x = Math.PI / 2;
     pipe.position.z = b1 + (PIPE_TOP - b1) / 2;
     this.casing.add(pipe);
+    this.casing.traverse((o) => { if (o.material) o.userData.mat = o.material; });
+    this.ghost = this.mat.ghostCasing;
     this.setCut(this.cut ?? true);
+    if (this.frame === 'rel') this.setFrame('rel');
   }
 
   setCut(on) {
@@ -281,7 +295,20 @@ export class PumpScene {
     if (this.frontShroud) this.frontShroud.visible = !on;
   }
 
-  setFrame(frame) { this.frame = frame; }
+  /**
+   * Absolute frame: impeller turns, particles follow c everywhere. Rotor frame: the
+   * impeller stands still and only the channel flow (w) is shown; the casing would spin
+   * backwards in this frame, which reads as "everything breaks", so it is ghosted and
+   * kept still as a reference. Trails restart so they never mix the two frames.
+   */
+  setFrame(frame) {
+    this.frame = frame;
+    for (const p of this.p) p.hist = [];
+    this.casing.traverse((o) => {
+      if (!o.material || o.material === this.mat.glass) return;
+      o.material = frame === 'abs' ? (o.userData.mat ?? o.material) : this.ghost;
+    });
+  }
   setFlowVisible(on) { this.showFlow = on; this.streaks.visible = on; }
 
   /** Display time scale: impeller below 0.4 blade pitch per 60 Hz frame (no strobing). */
@@ -320,7 +347,7 @@ export class PumpScene {
     const omega = (2 * Math.PI * this.op.n) / 60;
     this.rotor += omega * ts * dt;
     this.impeller.rotation.z = this.frame === 'abs' ? this.rotor : 0;
-    this.casing.rotation.z = this.frame === 'abs' ? 0 : -this.rotor;
+    this.casing.rotation.z = 0;
 
     const { Q, Qi, c2u } = this.op;
     const eyeArea = Math.PI * (this.rEye / k) ** 2;
@@ -382,8 +409,18 @@ export class PumpScene {
         x = p.r * Math.cos(phi);
         y = p.r * Math.sin(phi);
       }
+      const hidden = this.frame === 'rel' && p.phase !== 1;
+      if (hidden) p.hist = [];
       p.hist.unshift([x, y, p.z, this.rotor]);
       if (p.hist.length > SEG) p.hist.length = SEG;
+      if (hidden) {
+        // Park the whole streak beyond the far plane (a zero-length segment would still
+        // draw a round dot).
+        for (let s = 0; s < SEG - 1; s++, o += 6) {
+          P[o] = 0; P[o + 1] = 0; P[o + 2] = 1e5; P[o + 3] = 0; P[o + 4] = 0; P[o + 5] = 1e5;
+        }
+        continue;
+      }
       for (let s = 0; s < SEG - 1; s++) {
         const a = p.hist[Math.min(s, p.hist.length - 1)];
         const b = p.hist[Math.min(s + 1, p.hist.length - 1)];
