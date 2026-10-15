@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bomba Lab</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    try { const t = localStorage.getItem('bl-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></symbol>
+      <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.5V14M12 17h.01"/></symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+      <symbol id="i-flow" viewBox="0 0 24 24"><path d="M3 8c3-2 5 2 8 0s5-2 8 0M3 12c3-2 5 2 8 0s5-2 8 0M3 16c3-2 5 2 8 0s5-2 8 0"/></symbol>
+      <symbol id="i-cut" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v16" stroke-dasharray="2 2"/></symbol>
+      <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.3-5.6"/><path d="M4 4v5h5"/></symbol>
+      <symbol id="i-frame" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 12l5-5M12 12l-3 6"/><circle cx="12" cy="12" r="1.5"/></symbol>
+    </defs>
+  </svg>
+
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true" class="logo">
+        <circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2.5"/>
+        <g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+          <path d="M16 16c2-5 6-7 10-7"/><path d="M16 16c5 2 7 6 7 10"/><path d="M16 16c-2 5-6 7-10 7"/><path d="M16 16c-5-2-7-6-7-10"/>
+        </g>
+      </svg>
+      <div><strong>Bomba Lab</strong><span>Simulador interactivo de bomba centrífuga</span></div>
+    </div>
+    <dl class="kpis" id="kpis" aria-label="Punto de funcionamiento"></dl>
+    <div class="top-actions">
+      <button class="icon-btn" id="themeBtn" title="Tema claro/oscuro (T)" aria-label="Cambiar tema"><svg><use href="#i-moon"/></svg></button>
+      <button class="icon-btn" id="helpBtn" title="Ayuda y atajos (?)" aria-label="Ayuda"><svg><use href="#i-help"/></svg></button>
+    </div>
+  </header>
+
+  <div class="layout" id="layout">
+    <aside class="panel left" id="paramsPanel" aria-label="Parámetros">
+      <div class="panel-head">
+        <h2><svg class="ico"><use href="#i-sliders"/></svg><span>Parámetros</span></h2>
+        <button class="icon-btn small" id="toggleParams" title="Ocultar panel (P)" aria-label="Ocultar panel">‹</button>
+      </div>
+      <div class="panel-body">
+        <label class="preset">Bomba
+          <select id="preset"></select>
+        </label>
+        <div id="params"></div>
+        <ul id="warnings" class="warnings"></ul>
+      </div>
+      <div class="resizer" data-resize="left" title="Arrastrá para cambiar el ancho"></div>
+    </aside>
+
+    <main class="viewport pump" id="viewport">
+      <div id="canvasHost"></div>
+      <div class="chip" id="infoChip" hidden></div>
+      <nav class="toolbar" aria-label="Herramientas">
+        <button class="tool toggle on" id="cutBtn" title="Corte de la carcasa (X)" aria-label="Corte" aria-pressed="true"><svg><use href="#i-cut"/></svg></button>
+        <button class="tool toggle on" id="flowBtn" title="Mostrar flujo (F)" aria-label="Mostrar flujo" aria-pressed="true"><svg><use href="#i-flow"/></svg></button>
+        <button class="tool toggle" id="frameBtn" title="Marco relativo al rodete (C)" aria-label="Marco relativo" aria-pressed="false"><svg><use href="#i-frame"/></svg></button>
+        <span class="sep"></span>
+        <button class="tool" id="resetBtn" title="Restablecer cámara (R)" aria-label="Restablecer cámara"><svg><use href="#i-reset"/></svg></button>
+      </nav>
+      <div class="legend" id="legend3d"></div>
+      <div class="cav-banner hidden" id="cavBanner" role="status"></div>
+    </main>
+
+    <aside class="panel right" id="rightPanel" aria-label="Análisis">
+      <div class="resizer" data-resize="right" title="Arrastrá para cambiar el ancho"></div>
+      <div class="tabs" role="tablist">
+        <button role="tab" class="tab active" data-tab="curves" aria-selected="true">Curvas</button>
+        <button role="tab" class="tab" data-tab="impeller" aria-selected="false">Rodete</button>
+        <button role="tab" class="tab" data-tab="similarity" aria-selected="false">Semejanza</button>
+      </div>
+      <div class="panel-body" data-pane="curves">
+        <div class="card-head top">
+          <p class="note" id="curvesNote"></p>
+          <button class="link" id="toggleTable">Ver tabla</button>
+        </div>
+        <div id="curves" class="curves"></div>
+        <table id="curvesTable" class="data hidden"></table>
+      </div>
+      <div class="panel-body hidden" data-pane="impeller">
+        <div id="impellerPane"></div>
+      </div>
+      <div class="panel-body hidden" data-pane="similarity">
+        <div id="similarityPane"></div>
+      </div>
+    </aside>
+  </div>
+
+  <dialog id="helpDialog" class="dialog">
+    <form method="dialog">
+      <div class="dialog-head"><h2>Bomba Lab</h2><button class="icon-btn small" aria-label="Cerrar">×</button></div>
+      <p class="note">Mové los parámetros de la izquierda: el punto de funcionamiento es donde la curva de la bomba corta la del sistema. Cuando la ANPA disponible cae por debajo de la requerida, la bomba cavita.</p>
+      <dl class="shortcuts">
+        <div><dt><kbd>1</kbd>–<kbd>3</kbd></dt><dd>Pestañas: curvas, rodete, semejanza</dd></div>
+        <div><dt><kbd>F</kbd></dt><dd>Mostrar u ocultar el flujo</dd></div>
+        <div><dt><kbd>C</kbd></dt><dd>Marco absoluto / relativo al rodete</dd></div>
+        <div><dt><kbd>X</kbd></dt><dd>Corte de la carcasa</dd></div>
+        <div><dt><kbd>R</kbd></dt><dd>Restablecer la cámara</dd></div>
+        <div><dt><kbd>P</kbd></dt><dd>Mostrar u ocultar los parámetros</dd></div>
+        <div><dt><kbd>T</kbd></dt><dd>Tema claro / oscuro</dd></div>
+      </dl>
+    </form>
+  </dialog>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
