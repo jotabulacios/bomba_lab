@@ -229,3 +229,31 @@ test('Ruhrpumpen preset follows the test sheet of the notes (p. 48)', () => {
   const npshr = g.NPSHr;
   assert.ok(npshr > 2 && npshr < 5, `ANPAr ${npshr} m, like the manufacturer curves (2–5 m)`);
 });
+
+// ---------- Pressure along the installation ----------
+import { pressureProfile } from '../src/physics/system.js';
+
+test('pressure profile closes at the open discharge tank and steps up by the pump head', () => {
+  const p = buildPump();
+  const rho = 998.2;
+  const sys = { ...DEFAULT_SYSTEM, valve: 0.6 };
+  const op = operatingPoint((Q) => p.at(Q).H, sys, rho, p.qMax());
+  const pts = Object.fromEntries(pressureProfile(sys, op, [op.H]).map((x) => [x.key, x]));
+  close(pts.tank1.p, 0, 1e-12);
+  close(pts.tank2.p, 0, 1e-6, 'arrives at atmospheric pressure');
+  close(pts.discharge.p - pts.suction.p, op.H, 1e-9, 'pump adds H');
+  assert.ok(pts.valveOut.p < pts.valveIn.p, 'valve drops pressure');
+  close(pts.suction.p, sys.Hs - sys.Ksuct * op.Q ** 2, 1e-12);
+});
+
+test('series: the pressure between the pumps lies between suction and discharge', () => {
+  const p = buildPump();
+  const a = { headAt: (Q) => p.at(Q).H, qMax: p.qMax() };
+  const s = series(a, a);
+  const sys = { ...DEFAULT_SYSTEM, Hgeo: 50 };
+  const op = operatingPoint(s.headAt, sys, 998.2, s.qMax);
+  const split = s.split(op.Q);
+  const pts = Object.fromEntries(pressureProfile(sys, op, [split.HA, split.HB], 'series').map((x) => [x.key, x]));
+  assert.ok(pts.suction.p < pts.between.p && pts.between.p < pts.discharge.p);
+  close(pts.tank2.p, 0, 1e-6);
+});

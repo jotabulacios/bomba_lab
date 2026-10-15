@@ -75,3 +75,33 @@ export function npshStatus(npsha, npshr) {
   if (npshr > 0.6 * npsha) return 'margen-bajo';
   return 'ok';
 }
+
+/**
+ * Gauge pressure head (m of liquid, relative to the atmosphere) and elevation (m, pump
+ * axis = 0) along the installation at the operating point. The suction tank surface is
+ * at z = Hs and the discharge tank surface at z = Hs + H_geo (both open, p = 0). Suction
+ * loss uses the total flow (common suction header); velocity heads are neglected.
+ * @param op { Q, H } operating point of the whole group
+ * @param heads heads of the pumps in flow order: [H] (one pump), [HA, HB] (series) or
+ *              [H, H] (parallel: same head across both)
+ * @param mode 'single' | 'series' | 'parallel'
+ */
+export function pressureProfile(sys, op, heads, mode = 'single') {
+  const Q = op.Q;
+  const suction = sys.Hs - sys.Ksuct * Q * Q;
+  const pts = [{ key: 'tank1', z: sys.Hs, p: 0 }, { key: 'suction', z: 0, p: suction }];
+  let p = suction;
+  if (mode === 'series') {
+    p += heads[0];
+    pts.push({ key: 'between', z: 0, p });
+    p += heads[1];
+  } else {
+    p += heads[0];
+  }
+  pts.push({ key: 'discharge', z: 0, p });
+  const dischargeFriction = (sys.Kpipe - sys.Ksuct) * Q * Q;
+  pts.push({ key: 'valveIn', z: 0, p: p - 0.15 * dischargeFriction });
+  pts.push({ key: 'valveOut', z: 0, p: p - 0.15 * dischargeFriction - valveK(sys) * Q * Q });
+  pts.push({ key: 'tank2', z: sys.Hs + sys.Hgeo, p: p - dischargeFriction - valveK(sys) * Q * Q - (sys.Hs + sys.Hgeo) });
+  return pts;
+}
