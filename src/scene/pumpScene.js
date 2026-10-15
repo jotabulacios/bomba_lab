@@ -18,16 +18,16 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 const RAD = Math.PI / 180;
 const SEG = 10; // streak history samples
 const R3 = 1.07; // volute base circle (tongue clearance)
-const RV = 1.62; // volute outer radius at the end of the spiral
-const PHI0 = Math.PI / 2; // tongue at the top
-const NOZZLE_END = -1.9; // x of the discharge flange
+const RHO0 = 0.06; // volute section radius at the tongue
+const RHO1 = 0.36; // … and at the end of the spiral
+const PHI0 = 0; // tongue on the +x side: the spiral ends heading +y into a vertical discharge
+const Y_TOP = 2.3; // height of the discharge flange
 const PIPE_TOP = 1.5; // suction pipe length along +z
+const sectionRho = (u) => RHO0 + (RHO1 - RHO0) * u;
 const FRAME_COLOR = { abs: 0x2a78d6, rel: 0xeb6834 };
 
-const voluteR = (phi) => {
-  const u = ((((phi - PHI0) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI);
-  return R3 + (RV - R3) * u;
-};
+/** Wrap fraction u ∈ [0, 1) of angle φ, measured from the tongue. */
+const wrapU = (phi) => ((((phi - PHI0) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI);
 
 export class PumpScene {
   constructor(host, count = 900) {
@@ -62,13 +62,19 @@ export class PumpScene {
     this.controls.maxPolarAngle = Math.PI - 0.15;
     this.resetCamera();
 
+    this.cutPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.1);
+    const clip = [this.cutPlane];
     const phys = (color, metalness, roughness, extra = {}) => new THREE.MeshPhysicalMaterial({ color, metalness, roughness, side: THREE.DoubleSide, ...extra });
     this.mat = {
       impeller: phys(0xc9b48f, 0.55, 0.35, { clearcoat: 0.3 }),
       hub: phys(0xb9a27c, 0.5, 0.4),
-      casing: phys(0x8e9aa6, 0.45, 0.5),
+      casing: phys(0x3f6fb5, 0.4, 0.42, { clippingPlanes: clip }),
+      frame: phys(0x3f6fb5, 0.4, 0.45),
+      motor: phys(0x59636e, 0.5, 0.4),
+      base: phys(0x4b5158, 0.3, 0.6),
+      flangeMat: phys(0x8e9aa6, 0.6, 0.35),
       glass: phys(0xbfd6ea, 0.0, 0.1, { transparent: true, opacity: 0.16, depthWrite: false }),
-      front: phys(0x8e9aa6, 0.3, 0.5, { transparent: true, opacity: 0.22, depthWrite: false }),
+      front: phys(0xb9a27c, 0.5, 0.4, { clippingPlanes: clip }),
       shaft: phys(0x6f7780, 0.7, 0.3),
       ghostCasing: new THREE.MeshBasicMaterial({ color: 0x8e9aa6, transparent: true, opacity: 0.08, depthWrite: false, side: THREE.DoubleSide }),
       bubble: new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.1, transmission: 0.2, transparent: true, opacity: 0.9 }),
@@ -107,8 +113,8 @@ export class PumpScene {
   }
 
   resetCamera() {
-    this.camera.position.set(2.6, 1.9, 6.4);
-    this.controls.target.set(-0.35, 0.25, 0.1);
+    this.camera.position.set(4.2, 2.6, 5.6);
+    this.controls.target.set(0.1, 0.35, -0.5);
     this.controls.update();
   }
 
@@ -230,69 +236,122 @@ export class PumpScene {
     shaft.position.z = -0.75;
     this.impeller.add(shaft);
 
-    // Volute: spiral outer wall and back plate; front cover is the "corte" toggle.
-    const zb = -0.12;
-    const zt = Math.max(b2, b1) + 0.16;
-    this.zVol = [zb, zt];
-    const spiral = [];
-    for (let i = 0; i <= 160; i++) {
-      const phi = PHI0 + (i / 160) * 2 * Math.PI;
-      spiral.push([voluteR(phi) * Math.cos(phi), voluteR(phi) * Math.sin(phi)]);
+    // Volute: a tube whose circular section grows with the wrap angle (from the tongue
+    // at φ = 0 on the +x side), ending in a straight diffuser that rises to a vertical
+    // discharge flange, as in an end-suction pump. The cut plane opens its front half.
+    const zc = Math.max(this.bAt(1), 0.04) / 2;
+    this.zc = zc;
+    this.cutPlane.constant = this.cut === false ? 1e3 : zc;
+    const SEG_A = 180;
+    const SEG_C = 28;
+    const vpos = [];
+    const vidx = [];
+    const vring = (cx, cy, cz, ux, uy, rho) => {
+      // circle in the plane spanned by the radial unit (ux, uy, 0) and the axis z
+      for (let j = 0; j < SEG_C; j++) {
+        const t = (j / SEG_C) * Math.PI * 2;
+        vpos.push(cx + rho * Math.cos(t) * ux, cy + rho * Math.cos(t) * uy, cz + rho * Math.sin(t));
+      }
+    };
+    for (let i = 0; i <= SEG_A; i++) {
+      const u = i / SEG_A;
+      const phi = PHI0 + u * 2 * Math.PI;
+      const rho = sectionRho(u);
+      const rc = R3 + rho;
+      vring(rc * Math.cos(phi), rc * Math.sin(phi), zc, Math.cos(phi), Math.sin(phi), rho);
     }
-    spiral[160] = [RV * Math.cos(PHI0), RV * Math.sin(PHI0)];
-    const wall = new THREE.BufferGeometry();
-    const wp = [];
-    const wi = [];
-    spiral.forEach(([x, y], i) => {
-      wp.push(x, y, zb, x, y, zt);
-      if (i) { const a = (i - 1) * 2; wi.push(a, a + 2, a + 3, a, a + 3, a + 1); }
-    });
-    // Nozzle: from the end of the spiral straight to the flange, plus the tongue side.
-    const yTop = RV;
-    const yTongue = R3;
-    const nozzle = [[0, yTop], [NOZZLE_END, yTop + 0.08], [NOZZLE_END, yTongue - 0.12], [0, yTongue]];
-    const base = wp.length / 3;
-    for (const [x, y] of [nozzle[0], nozzle[1]]) wp.push(x, y, zb, x, y, zt);
-    wi.push(base, base + 2, base + 3, base, base + 3, base + 1);
-    for (const [x, y] of [nozzle[3], nozzle[2]]) wp.push(x, y, zb, x, y, zt);
-    wi.push(base + 4, base + 6, base + 7, base + 4, base + 7, base + 5);
-    wall.setAttribute('position', new THREE.Float32BufferAttribute(wp, 3));
-    wall.setIndex(wi);
-    wall.computeVertexNormals();
-    this.casing.add(new THREE.Mesh(wall, this.mat.casing));
-    const outline = new THREE.Shape();
-    spiral.forEach(([x, y], i) => (i ? outline.lineTo(x, y) : outline.moveTo(x, y)));
-    outline.lineTo(nozzle[1][0], nozzle[1][1]);
-    outline.lineTo(nozzle[2][0], nozzle[2][1]);
-    outline.lineTo(nozzle[3][0], nozzle[3][1]);
-    outline.closePath();
-    const plate = new THREE.Mesh(new THREE.ShapeGeometry(outline, 1), this.mat.casing);
-    plate.position.z = zb;
-    this.casing.add(plate);
-    const cover = new THREE.Mesh(new THREE.ShapeGeometry(outline, 1), this.mat.front);
-    cover.position.z = zt;
-    this.cover = cover;
-    this.casing.add(cover);
-    // Discharge flange ring and suction pipe.
-    const flange = new THREE.Mesh(new THREE.TorusGeometry((yTop - yTongue) / 2 + 0.12, 0.04, 8, 32), this.mat.casing);
-    flange.rotation.y = Math.PI / 2;
-    flange.position.set(NOZZLE_END, (yTop + yTongue) / 2, (zb + zt) / 2);
-    this.casing.add(flange);
+    // Diffuser: from the end of the spiral (at φ = 2π, heading +y) straight up.
+    const rEnd = R3 + RHO1;
+    const DIFF = 12;
+    for (let i = 1; i <= DIFF; i++) {
+      const v = i / DIFF;
+      vring(rEnd, v * Y_TOP, zc, 1, 0, RHO1 * (1 + 0.25 * v));
+    }
+    const rings = SEG_A + 1 + DIFF;
+    for (let i = 0; i < rings - 1; i++) {
+      for (let j = 0; j < SEG_C; j++) {
+        const a0 = i * SEG_C + j;
+        const a1 = i * SEG_C + ((j + 1) % SEG_C);
+        vidx.push(a0, a0 + SEG_C, a1 + SEG_C, a0, a1 + SEG_C, a1);
+      }
+    }
+    const vol = new THREE.BufferGeometry();
+    vol.setAttribute('position', new THREE.Float32BufferAttribute(vpos, 3));
+    vol.setIndex(vidx);
+    vol.computeVertexNormals();
+    this.casing.add(new THREE.Mesh(vol, this.mat.casing));
+    // Tongue (cutwater): the sharp wedge where the diffuser leaves the first turn.
+    const tongue = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.32, 12), this.mat.casing);
+    tongue.position.set(R3 + 0.03, 0.12, zc);
+    tongue.rotation.z = Math.PI;
+    this.casing.add(tongue);
+    // Casing sides (the impeller chamber): back wall and front wall with the suction eye.
+    const chamber = new THREE.Mesh(new THREE.RingGeometry(0.12, R3 + 0.02, 96), this.mat.casing);
+    chamber.position.z = -0.1;
+    this.casing.add(chamber);
+    const front = new THREE.Mesh(new THREE.RingGeometry(this.r1 * 1.02, R3 + 0.02, 96), this.mat.casing);
+    front.position.z = 2 * zc + 0.1;
+    this.casing.add(front);
+    // Discharge and suction flanges.
+    const dFlange = new THREE.Mesh(new THREE.TorusGeometry(RHO1 * 1.3, 0.05, 10, 36), this.mat.flangeMat);
+    dFlange.rotation.x = Math.PI / 2;
+    dFlange.position.set(rEnd, Y_TOP, zc);
+    this.casing.add(dFlange);
     this.rEye = r1 * 0.98;
+    const sFlange = new THREE.Mesh(new THREE.TorusGeometry(this.rEye + 0.06, 0.05, 10, 36), this.mat.flangeMat);
+    sFlange.position.z = PIPE_TOP;
+    this.casing.add(sFlange);
     const pipe = new THREE.Mesh(new THREE.CylinderGeometry(this.rEye, this.rEye, PIPE_TOP - b1, 48, 1, true), this.mat.glass);
     pipe.rotation.x = Math.PI / 2;
     pipe.position.z = b1 + (PIPE_TOP - b1) / 2;
     this.casing.add(pipe);
+
+    // Drive train behind the casing: bearing frame, coupling, motor; base plate and feet.
+    const cyl = (r, len, z, m) => {
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 32), m);
+      c.rotation.x = Math.PI / 2;
+      c.position.z = z;
+      return c;
+    };
+    this.casing.add(cyl(0.3, 1.1, -0.75, this.mat.frame));
+    this.casing.add(cyl(0.36, 0.12, -1.38, this.mat.frame));
+    const motor = cyl(0.62, 1.5, -2.35, this.mat.motor);
+    this.casing.add(motor);
+    for (let k = 0; k < 16; k++) {
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.06, 1.3), this.mat.motor);
+      const a = (k / 16) * Math.PI * 2;
+      fin.position.set(0.66 * Math.cos(a), 0.66 * Math.sin(a), -2.35);
+      fin.rotation.z = a;
+      this.casing.add(fin);
+    }
+    this.casing.add(cyl(0.2, 0.25, -3.2, this.mat.motor)); // fan cover
+    const baseY = -(R3 + RHO1) - 0.35;
+    const basePlate = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.14, 4.6), this.mat.base);
+    basePlate.position.set(0, baseY, -1.2);
+    this.casing.add(basePlate);
+    for (const [z, h] of [[-0.05, (R3 + RHO1) * 0.55], [-0.75, 0.45], [-2.35, 0.2]]) {
+      const top = z === -0.05 ? -(R3 + RHO1) * 0.55 : z === -0.75 ? -0.3 : -0.62;
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.9, Math.max(top - baseY, 0.05), 0.35), this.mat.base);
+      foot.position.set(0, (top + baseY) / 2, z);
+      this.casing.add(foot);
+    }
+    // Coupling (on the rotor so its turning is visible).
+    const coupling = cyl(0.26, 0.18, -1.55, this.mat.flangeMat);
+    this.impeller.add(coupling);
+    const mark = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.3, 0.2), this.mat.motor);
+    mark.position.set(0, 0.16, -1.55);
+    this.impeller.add(mark);
+
     this.casing.traverse((o) => { if (o.material) o.userData.mat = o.material; });
     this.ghost = this.mat.ghostCasing;
     this.setCut(this.cut ?? true);
     if (this.frame === 'rel') this.setFrame('rel');
   }
 
+  /** Cut: clipping plane through the volute centre plane (opens the front half). */
   setCut(on) {
     this.cut = on;
-    if (this.cover) this.cover.visible = !on;
-    if (this.frontShroud) this.frontShroud.visible = !on;
+    this.cutPlane.constant = on ? (this.zc ?? 0.1) : 1e3;
   }
 
   /**
@@ -326,6 +385,7 @@ export class PumpScene {
     p.z = anywhere ? Math.random() * PIPE_TOP : PIPE_TOP;
     p.frac = 0.15 + Math.random() * 0.7;
     p.zf = 0.15 + Math.random() * 0.7;
+    p.travel = undefined;
     p.hist = [];
   }
 
@@ -372,25 +432,33 @@ export class PumpScene {
           p.z = this.bAt(Math.min(p.r, 1)) * p.zf;
           if (p.r >= 1) { p.r = 1; p.phase = 2; p.phi += this.rotor; p.start = p.phi; }
         } else if (p.phase === 2) {
-          // Volute: free vortex c_u ∝ 1/r, spiralling out with the casing.
-          const R = voluteR(p.phi);
-          const r = 1 + (R - 1) * p.frac;
-          const cu = c2u / (r);
-          p.phi += (cu / (r / k)) * ts * dt;
+          // Volute: free vortex (c_u ∝ 1/r) along the growing circular section, until the
+          // wrap reaches the tongue; then up the diffuser.
+          if (p.travel === undefined) {
+            p.travel = 0;
+            p.toEnd = (1 - wrapU(p.phi)) * 2 * Math.PI;
+            p.psi = (Math.random() * 2 - 1) * Math.PI;
+            p.frac = 0.15 + Math.random() * 0.7;
+          }
+          const rho = sectionRho(wrapU(p.phi));
+          const r = R3 + rho + p.frac * rho * Math.cos(p.psi);
+          const cu = c2u / Math.max(r, 1);
+          const dphi = (cu / (r / k)) * ts * dt;
+          p.phi += dphi;
+          p.travel += dphi;
           p.r = r;
-          p.z = this.zVol[0] + 0.04 + (this.zVol[1] - this.zVol[0] - 0.08) * p.zf;
-          const travelled = p.phi - p.start;
-          const toTongue = ((((PHI0 - p.start) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) || 2 * Math.PI;
-          if (travelled >= toTongue) {
+          p.z = this.zc + p.frac * rho * Math.sin(p.psi);
+          if (p.travel >= p.toEnd) {
             p.phase = 3;
-            p.x = 0;
-            p.y = R3 + (RV - R3) * p.frac;
+            p.x = R3 + RHO1 + p.frac * RHO1 * Math.cos(p.psi);
+            p.y = 0;
           }
         } else {
-          // Discharge nozzle: straight to the flange.
-          const area = ((RV - R3) / k) * ((this.zVol[1] - this.zVol[0]) / k);
-          p.x -= (Q / area) * k * ts * dt;
-          if (p.x <= NOZZLE_END) this.spawn(p);
+          // Diffuser and vertical discharge: straight up to the flange.
+          const area = Math.PI * (RHO1 * 1.12 / k) ** 2;
+          p.y += (Q / area) * k * ts * dt;
+          p.z = this.zc + p.frac * RHO1 * Math.sin(p.psi);
+          if (p.y >= Y_TOP) this.spawn(p);
         }
       }
     }
