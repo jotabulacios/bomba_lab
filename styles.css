@@ -321,3 +321,20 @@ table.clickable tr.current td { background: var(--accent-soft); }
 .plan-rot-head { fill: var(--ink-3); }
 .plan-txt { fill: var(--ink-2); font-size: 11px; font-family: var(--mono); }
 table.data tr.current td { background: var(--accent-soft); font-weight: 600; }
+
+/* Installation view */
+.plant-label { font-size: 11px; color: var(--ink); white-space: nowrap; pointer-events: none; }
+.plant-label.pump { background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; box-shadow: var(--shadow); font-family: var(--mono); line-height: 1.4; }
+.plant-label.pump b { display: block; font-family: Inter, sans-serif; }
+.plant-label .cav { color: var(--crit); }
+.plant-label.gauge { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; font-size: 10px; color: var(--ink-2); text-align: center; line-height: 1.3; }
+.plant-label.gauge b { display: block; font-family: var(--mono); font-size: 12px; color: var(--ink); }
+.plant-label.gauge span { font-family: var(--mono); }
+.plant-label.gauge.vac b { color: var(--s2); }
+.plant-label.tag { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; }
+.plant-label.dimtxt { font-family: var(--mono); color: var(--ink-2); background: color-mix(in srgb, var(--surface) 75%, transparent); padding: 0 4px; border-radius: 4px; }
+.plant-label.note { color: var(--ink-3); font-style: italic; }
+.pleg i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; margin: 0 3px 0 6px; }
+.pleg i.pv { background: #eb6834; } .pleg i.p0 { background: #b9bec4; } .pleg i.pp { background: #2a78d6; }
+.legend { width: auto; max-width: calc(100% - 90px); }
+.pump-picker { position: absolute; top: 12px; left: 12px; z-index: 3; margin: 0; width: 200px; box-shadow: var(--shadow); }

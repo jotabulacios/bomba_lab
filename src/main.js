@@ -1,6 +1,6 @@
 import { fluidState, G } from './physics/fluid.js';
 import { buildPump, PRESETS } from './physics/pump.js';
-import { operatingPoint, npshAvailable, cavitationOnset, npshStatus, systemHead } from './physics/system.js';
+import { operatingPoint, npshAvailable, cavitationOnset, npshStatus, systemHead, pressureProfile } from './physics/system.js';
 import { series, parallel } from './physics/combine.js';
 import { specificSpeeds, impellerType } from './physics/similarity.js';
 import { buildParams } from './ui/params.js';
@@ -9,6 +9,7 @@ import { drawImpellerPane } from './ui/impellerPane.js';
 import { drawSimilarityPane } from './ui/similarityPane.js';
 import { setupChrome, token } from './ui/chrome.js';
 import { PumpScene } from './scene/pumpScene.js';
+import { PlantScene } from './scene/plantScene.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -86,9 +87,14 @@ function solve() {
     if (state.mode !== 'single') pB = pump.at(split.QB, optsB);
   }
   // Suction: each pump has its own suction line (in series only the first one draws from the tank).
-  const npsha = pA ? npshAvailable(sys, fluid, pA.Q) : npshAvailable(sys, fluid, 0);
+  // Common suction line (the installation drawing): suction loss with the total flow.
+  // In parallel both pumps see that ANPAd; in series only the first pump draws from it.
+  const npsha = npshAvailable(sys, fluid, op ? op.Q : 0);
   const npshr = pA ? pA.NPSHr : pump.at(0, optsA).NPSHr;
-  const status = op ? npshStatus(npsha, npshr) : 'sin-caudal';
+  const npshrB = state.mode === 'parallel' && pB ? pB.NPSHr : 0;
+  const status = op ? npshStatus(npsha, Math.max(npshr, npshrB)) : 'sin-caudal';
+  const cavA = op && npsha <= npshr;
+  const cavB = op && state.mode === 'parallel' && pB && pB.Q > 1e-6 && npsha <= npshrB;
   const Ptot = (pA?.Peje ?? 0) + (pB?.Peje ?? 0);
   const etaGroup = op && Ptot > 0 ? (rho * G * op.Q * op.H) / Ptot : 0;
   const bep = pump.bep(optsA);
@@ -105,7 +111,7 @@ function solve() {
   }
   if (state.mode === 'parallel' && pB && pB.Q < 1e-6) warnings.push('En paralelo la segunda bomba no aporta: su altura a caudal cero es menor que la del punto de funcionamiento.');
 
-  return { spec, fluid, rho, sys, D2, optsA, optsB, A, B, group, op, pA, pB, npsha, npshr, status, Ptot, etaGroup, bep, ss, onset, warnings };
+  return { spec, fluid, rho, sys, D2, optsA, optsB, A, B, group, op, pA, pB, npsha, npshr, npshrB, cavA, cavB, status, Ptot, etaGroup, bep, ss, onset, warnings };
 }
 
 // ---------- KPIs ----------
@@ -193,17 +199,70 @@ function updateCurves(r) {
 
 // ---------- 3D ----------
 const scene3d = new PumpScene($('canvasHost'));
+const plant = new PlantScene(scene3d.renderer, $('canvasHost'));
+let view = 'plant'; // 'plant' | 'pump'
+let shownPump = 0; // which pump the detail view shows (series / parallel)
 
 function update3d(r) {
   const s = r.spec;
+  const two = state.mode !== 'single';
+  if (!two) shownPump = 0;
+  const pp = shownPump === 1 && r.pB ? r.pB : r.pA;
+  const n = shownPump === 1 ? state.n * (state.nB / 100) : state.n;
   scene3d.setPump(
     { D2: r.D2, b2: s.b2, D1: s.D1, b1: s.b1, beta1: pump.beta1, beta2: s.beta2, z: s.z, t: s.t },
-    { n: state.n, Q: r.pA?.Q ?? 0, Qi: r.pA?.Qi ?? 0, c2u: r.pA?.c2u ?? 0, rho: r.rho },
+    { n, Q: pp?.Q ?? 0, Qi: pp?.Qi ?? 0, c2u: pp?.c2u ?? 0, rho: r.rho },
   );
   const ts = scene3d.updateTimeScale(state.n * Math.max(1, state.nB / 100), s.z);
-  scene3d.setCavitation(r.status === 'cavita' ? 0.3 + (2 * (r.npshr - r.npsha)) / r.npshr : 0);
+  const cav = shownPump === 1 ? r.cavB : r.cavA;
+  const req = shownPump === 1 ? r.npshrB : r.npshr;
+  scene3d.setCavitation(cav ? 0.3 + (2 * (req - r.npsha)) / req : 0);
+
+  // Installation.
+  const Q = r.op ? r.op.Q : 0;
+  const branches = state.mode === 'parallel' ? { QA: r.pA?.Q ?? 0, QB: r.pB?.Q ?? 0 } : { QA: Q, QB: Q };
+  const heads = !r.op ? [0] : state.mode === 'series' ? [r.pA.H, r.pB.H] : [r.op.H];
+  const pumps = [{ n: state.n, Q: r.pA?.Q ?? 0, H: r.pA?.H ?? 0, active: (r.pA?.Q ?? 0) > 1e-6, cavitates: !!r.cavA }];
+  if (two) pumps.push({ n: state.n * (state.nB / 100), Q: r.pB?.Q ?? 0, H: r.pB?.H ?? 0, active: (r.pB?.Q ?? 0) > 1e-6, cavitates: !!r.cavB });
+  plant.setState({
+    mode: state.mode, Hs: state.Hs, Hgeo: state.Hgeo, valve: state.valve / 100, Q, branches, pumps, rho: r.rho,
+    profile: pressureProfile(r.sys, r.op ?? { Q: 0, H: 0 }, heads, state.mode),
+    pipeArea: (s.Qd / 2.5),
+  });
+
   const frameTxt = scene3d.frame === 'abs' ? 'marco absoluto: el rodete gira y el flujo sigue c' : 'marco del rodete: el rodete quieto y el flujo sigue w';
-  $('legend3d').innerHTML = `<span>Cámara lenta 1 : ${Math.round(1 / ts)} · ${frameTxt}${state.mode !== 'single' ? ' · se muestra la bomba 1' : ''}</span>`;
+  $('legend3d').innerHTML = view === 'plant'
+    ? '<span class="pleg"><i class="pv"></i>vacío <i class="p0"></i>0 <i class="pp"></i>presión · color de las partículas = presión manométrica · clic en una bomba para verla por dentro</span>'
+    : `<span>Cámara lenta 1 : ${Math.round(1 / ts)} · ${frameTxt}${two ? ` · bomba ${shownPump + 1}` : ''}</span>`;
+  $('pumpPicker').classList.toggle('hidden', view !== 'pump' || !two);
+  document.querySelectorAll('[data-pump]').forEach((b) => b.classList.toggle('active', Number(b.dataset.pump) === shownPump));
+}
+
+function setView(v) {
+  view = v;
+  $('viewBtn').classList.toggle('on', v === 'pump');
+  $('viewBtn').setAttribute('aria-pressed', String(v === 'pump'));
+  $('viewBtn').title = v === 'plant' ? 'Ver la bomba por dentro (V)' : 'Ver la instalación (V)';
+  plant.controls.enabled = v === 'plant';
+  scene3d.controls.enabled = v === 'pump';
+  plant.setLabelsVisible(v === 'plant');
+  for (const id of ['cutBtn', 'frameBtn']) $(id).classList.toggle('hidden', v === 'plant');
+  if (result) update3d(result);
+}
+
+// Click (not drag) on a pump in the installation opens its detail view.
+{
+  let down = null;
+  const canvas = scene3d.renderer.domElement;
+  canvas.addEventListener('pointerdown', (e) => { down = [e.clientX, e.clientY]; });
+  canvas.addEventListener('pointerup', (e) => {
+    if (!down || view !== 'plant') return;
+    const moved = Math.hypot(e.clientX - down[0], e.clientY - down[1]);
+    down = null;
+    if (moved > 4) return;
+    const i = plant.pick(e);
+    if (i !== null) { shownPump = i; setView('pump'); }
+  });
 }
 
 function toggleTool(id, fn) {
@@ -215,10 +274,13 @@ function toggleTool(id, fn) {
 }
 const tools = {
   cut: () => toggleTool('cutBtn', (on) => scene3d.setCut(on)),
-  flow: () => toggleTool('flowBtn', (on) => scene3d.setFlowVisible(on)),
+  flow: () => toggleTool('flowBtn', (on) => { scene3d.setFlowVisible(on); plant.showFlow = on; }),
   frame: () => toggleTool('frameBtn', (on) => { scene3d.setFrame(on ? 'rel' : 'abs'); if (result) update3d(result); }),
-  reset: () => scene3d.resetCamera(),
+  reset: () => (view === 'plant' ? plant.frame() : scene3d.resetCamera()),
+  view: () => setView(view === 'plant' ? 'pump' : 'plant'),
 };
+$('viewBtn').addEventListener('click', tools.view);
+document.querySelectorAll('[data-pump]').forEach((b) => b.addEventListener('click', () => { shownPump = Number(b.dataset.pump); if (result) update3d(result); }));
 $('cutBtn').addEventListener('click', tools.cut);
 $('flowBtn').addEventListener('click', tools.flow);
 $('frameBtn').addEventListener('click', tools.frame);
@@ -269,6 +331,7 @@ const chrome = setupChrome({
     f: tools.flow,
     c: tools.frame,
     r: tools.reset,
+    v: tools.view,
   },
 });
 
@@ -288,21 +351,26 @@ function update() {
 }
 
 function onResize() {
-  scene3d.resize();
+  resize3d();
   if (result) renderPanes(result);
 }
 new ResizeObserver(onResize).observe($('rightPanel'));
-new ResizeObserver(() => scene3d.resize()).observe($('viewport'));
+function resize3d() {
+  scene3d.resize();
+  const host = $('canvasHost');
+  if (host.clientWidth && host.clientHeight) plant.resize(host.clientWidth, host.clientHeight);
+}
+new ResizeObserver(resize3d).observe($('viewport'));
 
 scene3d.setBackground(token('--stage-bg'));
 update();
-scene3d.resize();
+setView('plant');
+resize3d();
 let last = performance.now();
 function loop(now) {
   requestAnimationFrame(loop);
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
-  scene3d.update(dt);
-  scene3d.render();
+  if (view === 'plant') { plant.update(dt); plant.render(); } else { scene3d.update(dt); scene3d.render(); }
 }
 requestAnimationFrame(loop);

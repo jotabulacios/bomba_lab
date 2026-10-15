@@ -29,9 +29,10 @@ make test       # tests del modelo físico (node --test)
 | Pestaña **Curvas** | H–Q con la curva del sistema y el punto de funcionamiento; ηT–Q con el BEP; P–Q; ANPAd y ANPAr contra Q con la zona de cavitación. Comparten el eje Q y un cursor común, y tienen vista de tabla. |
 | Pestaña **Rodete** | Triángulos de entrada y salida (c, w, u; c2 con y sin resbalamiento), incidencia, rodete en planta, efecto de β2 sobre H_t∞ y el grado de reacción, y los rendimientos ηh, ηv y ηm. |
 | Pestaña **Semejanza** | ns, nq y Ns; Φ y Ψ; tabla de tipos de rodete (apunte 13, p. 17); comparación entre las leyes de afinidad y el modelo al cambiar n o recortar D2. |
-| Visor 3D | Rodete, voluta, tobera y tubo de aspiración. Las partículas siguen el flujo en el marco absoluto (c) o en el del rodete (w), y cuando cavita aparecen burbujas en el borde de ataque. Herramientas: corte, flujo, marco y cámara. |
+| Visor 3D, **Instalación** (por defecto) | Tanque de aspiración (la bomba en carga o aspirando según Hs, con su cota), bomba sobre su base, cañería con válvula de volante y tanque elevado a H_geo (escala vertical comprimida). Funciona con una bomba, dos en serie o dos en paralelo con colectores; si una bomba no aporta, se ve apagada. Las partículas avanzan con el caudal de cada rama y se colorean por presión manométrica (vacío ↔ presión). Hay manómetros en vivo, y la bomba que cavita se pone en rojo. Clic en una bomba para verla por dentro. |
+| Visor 3D, **Bomba** | Voluta de sección circular creciente con lengua y descarga vertical, rodete cerrado con álabes curvados, soporte de cojinetes, acople, motor y base. El **corte** abre media carcasa con un plano de corte. Las partículas siguen el flujo en el marco absoluto (c) o en el del rodete (w); en este último solo se dibuja el flujo en los canales y la carcasa queda fija. Cuando cavita aparecen burbujas en el borde de ataque. En serie o paralelo, un selector elige la bomba 1 o la 2. |
 
-Atajos: `1`–`3` pestañas · `F` flujo · `C` marco · `X` corte · `R` cámara · `P` parámetros · `T` tema · `?` ayuda.
+Atajos: `1`–`3` pestañas · `V` instalación/bomba · `F` flujo · `C` marco · `X` corte · `R` cámara · `P` parámetros · `T` tema · `?` ayuda.
 
 ## Ejemplos (entradas → salidas esperadas)
 
@@ -50,7 +51,8 @@ index.html ── src/main.js ─┬─ physics/fluid.js       agua (ρ, pv por 
                            ├─ physics/system.js      curva del sistema, punto de funcionamiento, ANPAd
                            ├─ physics/combine.js     serie y paralelo
                            ├─ physics/similarity.js  afinidad, ns / nq / Ns, Φ, Ψ, tipo de rodete
-                           ├─ scene/pumpScene.js     rodete, voluta y flujo en 3D (Three.js), burbujas
+                           ├─ scene/plantScene.js    instalación: tanques, cañerías, válvula, serie/paralelo, manómetros
+                           ├─ scene/pumpScene.js     bomba por dentro: rodete, voluta, motor, corte, flujo, burbujas
                            └─ ui/                    curvas, pestañas Rodete y Semejanza, parámetros, chrome
 ```
 
@@ -77,6 +79,8 @@ parámetros ─▶ buildPump(spec) (calibración en el punto de diseño, solo si
 - **ANPAr:** correlación (λc·cm1² + λw·w1²)/(2g), con λc = 1.1 y λw = 0.25 (Pfleiderer/Gülich; no está en el apunte). Crece con Q, como en el apunte. Escala con n², mientras que la regla empírica del apunte es n^1.7; las dos están disponibles.
 - **ANPAd:** Hs + Ha − Hf − Hpv (apunte, p. 40). Ha sale de la atmósfera ISA según la altitud y Hpv de Antoine según la temperatura. Margen del apunte: ANPAr < 60 % de ANPAd.
 - **Instalación:**
+  - `pressureProfile()` da la presión manométrica en cada punto (tanque, aspiración, entre bombas, descarga, válvula, llegada). Con ella se dibujan los manómetros y el color del flujo; cierra en 0 en el tanque abierto de descarga.
+  - Aspiración común: ANPAd se calcula con el caudal total.
   - H_sist = H_geo + (K_cañería + K_válvula)·Q², con K_válvula ∝ 1/apertura².
   - El punto de funcionamiento se busca por bisección.
   - Serie: alturas sumadas a igual Q. Paralelo: caudales sumados a igual H; una bomba más débil no aporta por encima de su altura a caudal cero.
