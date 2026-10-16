@@ -175,3 +175,22 @@ export function buildPump(spec = {}) {
     shutoff: (opts) => at(0, opts),
   };
 }
+
+/**
+ * Volute throat sized for the design flow with a free vortex (c_u·r = c2u·R2): the flow
+ * through a circular throat of radius ρ centred at R_c = R3 + ρ is Q ≈ c2u·R2·A/R_c.
+ * R3 = 1.07·R2 (tongue clearance). Returns radii in metres.
+ * @param pump buildPump() result, evaluated at its design flow and speed
+ */
+export function voluteThroat(pump) {
+  const s = pump.spec;
+  const d = pump.at(s.Qd);
+  const R2 = s.D2 / 2;
+  const R3 = 1.07 * R2;
+  let rho = Math.sqrt(s.Qd / (Math.PI * Math.max(d.c2u, 1e-3)));
+  for (let i = 0; i < 40; i++) {
+    const Rc = R3 + rho;
+    rho = Math.sqrt((s.Qd * Rc) / (Math.PI * d.c2u * R2));
+  }
+  return { rho, area: Math.PI * rho * rho, Rc: R3 + rho, R3, R2 };
+}

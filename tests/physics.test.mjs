@@ -257,3 +257,16 @@ test('series: the pressure between the pumps lies between suction and discharge'
   assert.ok(pts.suction.p < pts.between.p && pts.between.p < pts.discharge.p);
   close(pts.tank2.p, 0, 1e-6);
 });
+
+// ---------- Volute throat ----------
+import { voluteThroat } from '../src/physics/pump.js';
+
+test('volute throat passes the design flow with a free vortex and grows with Q_d', () => {
+  const p = buildPump();
+  const t = voluteThroat(p);
+  const c2u = p.at(p.spec.Qd).c2u;
+  close(c2u * t.R2 * t.area / t.Rc, p.spec.Qd, 1e-9 * p.spec.Qd, 'Q = c2u·R2·A/Rc');
+  assert.ok(t.rho > 0 && t.rho < t.R2, `ρ ${t.rho}`);
+  const bigger = voluteThroat(buildPump({ Qd: 0.08 }));
+  assert.ok(bigger.area > t.area);
+});
