@@ -48,7 +48,7 @@ function tooltip() {
  * @param host element
  * @param model {
  *   xMax: number (m³/h), xLabel,
- *   charts: [{ key, title, unit, digits, yMax?, vline?, series: [{ name, cls, dash?, pts: [[x, y]] }],
+ *   charts: [{ key, title, unit, digits, yMax?, vline?, series: [{ name, cls, dash?, points?, pts: [[x, y]] }],
  *              markers?: [{ x, y, label, cls }], bands?: [{ x0, x1, label, cls }] }]
  * }
  */
@@ -68,7 +68,7 @@ export function drawCurves(host, model) {
     const clip = `cv-clip-${c.key}-${Math.random().toString(36).slice(2, 7)}`;
     const path = (pts) => pts.filter((p) => Number.isFinite(p[1])).map((p, i) => `${i ? 'L' : 'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join('');
     const legend = c.series.length > 1
-      ? `<g class="cv-legend">${c.series.map((s, i) => `<g transform="translate(${M.l + i * 96},${10})"><line class="cv-line ${s.cls}" x1="0" x2="14" y1="0" y2="0" ${s.dash ? 'stroke-dasharray="4 3"' : ''}/><text x="18" y="3">${s.name}</text></g>`).join('')}</g>`
+      ? `<g class="cv-legend">${c.series.map((s, i) => `<g transform="translate(${M.l + i * 96},${10})">${s.points ? `<rect class="cv-pt ${s.cls}" x="3" y="-4" width="8" height="8"/>` : `<line class="cv-line ${s.cls}" x1="0" x2="14" y1="0" y2="0" ${s.dash ? 'stroke-dasharray="4 3"' : ''}/>`}<text x="18" y="3">${s.name}</text></g>`).join('')}</g>`
       : '';
     const svg = `<svg class="cv" viewBox="0 0 ${W} ${H_CHART}" width="${W}" height="${H_CHART}" role="img" aria-label="${c.title}">
       ${legend}
@@ -78,7 +78,9 @@ export function drawCurves(host, model) {
         <text class="cv-band-label" x="${X(b.x0) + 4}" y="${M.t + 11}">${b.label}</text>`).join('')}
       ${Number.isFinite(c.vline) ? `<line class="cv-op" x1="${X(c.vline)}" x2="${X(c.vline)}" y1="${M.t}" y2="${M.t + ih}"/>` : ''}
       <defs><clipPath id="${clip}"><rect x="${M.l}" y="${M.t - 2}" width="${iw}" height="${ih + 4}"/></clipPath></defs>
-      <g clip-path="url(#${clip})">${c.series.map((s) => `<path class="cv-line ${s.cls}" d="${path(s.pts)}" ${s.dash ? 'stroke-dasharray="4 3"' : ''}/>`).join('')}</g>
+      <g clip-path="url(#${clip})">${c.series.map((s) => (s.points
+        ? s.pts.filter((p) => Number.isFinite(p[1])).map((p) => `<rect class="cv-pt ${s.cls}" x="${(X(p[0]) - 4).toFixed(1)}" y="${(Y(p[1]) - 4).toFixed(1)}" width="8" height="8"/>`).join('')
+        : `<path class="cv-line ${s.cls}" d="${path(s.pts)}" ${s.dash ? 'stroke-dasharray="4 3"' : ''}/>`)).join('')}</g>
       ${(c.markers ?? []).map((m) => `<circle class="cv-marker ${m.cls}" cx="${X(m.x)}" cy="${Y(m.y)}" r="5"/>`
         + (m.label ? `<text class="cv-mlabel" x="${X(m.x) + 8}" y="${Y(m.y) - 7}">${m.label}</text>` : '')).join('')}
       <g class="cv-axis">
@@ -107,7 +109,9 @@ export function drawCurves(host, model) {
       cr.setAttribute('visibility', 'visible');
     }
     const rows = model.charts.flatMap((c) => c.series.map((s) => {
-      const y = yAt(s.pts, x);
+      // Measured points are not interpolated: show one only when the cursor is on it.
+      const near = s.points ? s.pts.find((p) => Math.abs(p[0] - x) < model.xMax * 0.025) : null;
+      const y = s.points ? (near ? near[1] : null) : yAt(s.pts, x);
       return y === null ? '' : `<div><i class="sw ${s.cls}"></i>${s.name}: <b>${y.toFixed(c.digits ?? 1)}</b> ${c.unit}</div>`;
     })).join('');
     t.hidden = false;

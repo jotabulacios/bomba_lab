@@ -88,6 +88,9 @@
         <button class="tool" id="resetBtn" title="Restablecer cámara (R)" aria-label="Restablecer cámara"><svg><use href="#i-reset"/></svg></button>
       </nav>
       <div class="legend" id="legend3d"></div>
+      <div class="seg small mode-seg" id="modeSeg" role="group" aria-label="Conexión de bombas">
+        <button data-mode="single" class="active">Una bomba</button><button data-mode="series">Serie</button><button data-mode="parallel">Paralelo</button>
+      </div>
       <div class="design-ctl hidden" id="designCtl">
         <div class="seg small" role="group" aria-label="Vista">
           <button data-dcam="front">Frente</button><button data-dcam="side">Lateral</button><button data-dcam="iso" class="active">Iso</button>
@@ -135,6 +138,7 @@
         </div>
         <div id="curves" class="curves"></div>
         <table id="curvesTable" class="data hidden"></table>
+        <div id="testSheet" class="test-sheet"></div>
       </div>
       <div class="panel-body hidden" data-pane="impeller">
         <div id="impellerPane"></div>

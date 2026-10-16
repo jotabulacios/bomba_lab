@@ -405,3 +405,11 @@ table.data td.up { color: var(--s3); } table.data td.down { color: var(--s2); }
 :root[data-theme="dark"] .title-block { background: #0f2a4a; color: #e6f0fb; border-color: #e6f0fb; }
 :root[data-theme="dark"] .title-block .tb-title, :root[data-theme="dark"] .title-block .tb-cell { border-color: #e6f0fb; }
 :root[data-theme="dark"] .title-block small { color: #8fa8c4; }
+
+/* Measured test points (Ruhrpumpen sheet) */
+.cv-pt { fill: var(--surface); stroke: var(--ink); stroke-width: 1.6; }
+.sw.test { background: none; border: 1.6px solid var(--ink); width: 8px; height: 8px; }
+.test-sheet { margin-top: 14px; }
+.test-sheet .ok { color: var(--good, #1baf7a); font-weight: 600; }
+.test-sheet .bad { color: var(--crit, #d03b3b); font-weight: 600; }
+.mode-seg { position: absolute; left: 12px; top: 12px; z-index: 3; }

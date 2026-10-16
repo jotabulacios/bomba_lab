@@ -14,6 +14,10 @@ import { DesignScene } from './scene/designScene.js';
 import { drawDesignPane } from './ui/designPane.js';
 import { drawPidPane } from './ui/pidPane.js';
 import { updateTitleBlock, exportDrawing } from './ui/titleBlock.js';
+import { RUHRPUMPEN_TEST, scaledTestPoints, guaranteeCheck } from './physics/testSheet.js';
+
+// Measured performance of a preset, when the course notes have its test sheet.
+const TEST_SHEETS = { ruhrpumpen: RUHRPUMPEN_TEST };
 
 const $ = (id) => document.getElementById(id);
 
@@ -139,6 +143,35 @@ function updateKpis(r) {
   $('cavBanner').textContent = 'La bomba cavita: ANPAd < ANPAr';
 }
 
+// ---------- Test sheet ----------
+/** Measured points against the model at the same flow, and the HI guarantee check. */
+function drawTestSheet(sheet, tp, r) {
+  const host = $('testSheet');
+  if (!sheet) { host.innerHTML = ''; return; }
+  const at = (Qh) => pump.at(Qh / 3600, r.optsA);
+  const f = (v, d = 1) => v.toFixed(d);
+  const dp = (m, t) => (t > 1e-9 ? `${m >= t ? '+' : '−'}${f(Math.abs(100 * (m - t) / t))} %` : '—');
+  const rows = tp.map((p) => {
+    const m = at(p.Q);
+    return `<tr><td>${f(p.Q, 0)}</td><td>${f(p.H)}</td><td>${f(m.H)}</td><td>${dp(m.H, p.H)}</td><td>${f(100 * p.eta)}</td><td>${f(100 * m.etaT)}</td><td>${f(p.P)}</td><td>${f(m.Peje / 1000)}</td></tr>`;
+  }).join('');
+  const atHome = Math.abs(state.n - sheet.n) < 0.5 && Math.abs(r.D2 - sheet.D2) < 1e-4;
+  const designSame = DESIGN_KEYS.every((k) => state[k] === stateFromPreset(state.preset)[k]);
+  const g = sheet.guarantee;
+  const chk = guaranteeCheck(sheet, (Qh) => pump.at(Qh / 3600, { ...r.optsA, n: sheet.n, D2: sheet.D2 }).H);
+  host.innerHTML = `
+    <section class="card">
+      <div class="card-head"><h3>Hoja de ensayo</h3><span class="note">${sheet.title} · ${sheet.source}</span></div>
+      <p class="note">Puntos medidos (□ en las curvas), homologados a ${sheet.n} rpm y D2 ${f(sheet.D2 * 1000, 0)} mm${atHome ? '' : `, llevados con las leyes de afinidad a ${f(state.n, 0)} rpm y D2 ${f(r.D2 * 1000, 0)} mm`}.${designSame ? '' : ' <b>Cambiaste el diseño del rodete: el ensayo es de la bomba original.</b>'}</p>
+      <table class="data">
+        <tr><th>Q m³/h</th><th>H ensayo</th><th>H modelo</th><th>ΔH</th><th>η ensayo %</th><th>η modelo %</th><th>P ensayo kW</th><th>P modelo kW</th></tr>
+        ${rows}
+      </table>
+      <p class="note">Punto garantizado: ${g.Q} m³/h, ${g.H} m, ${f(100 * g.eta)} %, ${f(g.P)} kW. Tolerancia HI 2016 grado 2B: Q ±${100 * sheet.tolerance.Q} %, H ±${100 * sheet.tolerance.H} %, P 0/+${100 * sheet.tolerance.Pplus} %.
+        El modelo a ${sheet.n} rpm da ${f(chk.H)} m en ${g.Q} m³/h (${dp(chk.H, g.H)}): <span class="${chk.inBox ? 'ok' : 'bad'}">${chk.inBox ? 'pasa por la ventana de tolerancia' : 'fuera de la ventana de tolerancia'}</span>. La hoja dice APROBADO.</p>
+    </section>`;
+}
+
 // ---------- Curves ----------
 function updateCurves(r) {
   const N = 90;
@@ -152,6 +185,10 @@ function updateCurves(r) {
   const pumpX = r.pA ? r.pA.Q * 3600 : null;
   const combo = state.mode !== 'single';
   const per = combo ? ' (por bomba)' : '';
+  // Test sheet points, moved with the affinity laws to the current speed and trim.
+  const sheet = TEST_SHEETS[state.preset];
+  const tp = sheet ? scaledTestPoints(sheet, state.n, r.D2) : null;
+  const testSeries = (f) => (tp ? [{ name: 'Ensayo', cls: 'test', points: true, pts: tp.map((p) => [p.Q, f(p)]) }] : []);
 
   const hSeries = combo
     ? [{ name: state.mode === 'series' ? 'Serie' : 'Paralelo', cls: 's1', pts: pts((Q) => r.group.headAt(Q)) },
@@ -160,6 +197,7 @@ function updateCurves(r) {
     : [{ name: 'Bomba', cls: 's1', pts: onePump },
       { name: 'Sistema', cls: 's2', pts: pts((Q) => systemHead(r.sys, Q, r.rho)) },
       { name: 'H_t∞ Euler', cls: 'muted', dash: true, pts: single.map((p) => [p.Q * 3600, p.HtInf]) }];
+  hSeries.push(...testSeries((p) => p.H));
   const yMaxH = Math.max(...hSeries[0].pts.map((p) => p[1]), r.pA ? r.pA.H : 0) * 1.25;
 
   const charts = [
@@ -170,13 +208,13 @@ function updateCurves(r) {
     },
     {
       key: 'eta', title: `Rendimiento total ηT${per}`, unit: '%', digits: 1, yMax: 100, vline: pumpX,
-      series: [{ name: 'ηT', cls: 's1', pts: single.map((p) => [p.Q * 3600, 100 * p.etaT]) }],
+      series: [{ name: 'ηT', cls: 's1', pts: single.map((p) => [p.Q * 3600, 100 * p.etaT]) }, ...testSeries((p) => 100 * p.eta)],
       markers: [{ x: r.bep.Q * 3600, y: 100 * r.bep.etaT, label: `BEP ${(100 * r.bep.etaT).toFixed(1)} %`, cls: 'bep' },
         ...(r.pA ? [{ x: pumpX, y: 100 * r.pA.etaT, cls: 'op' }] : [])],
     },
     {
       key: 'P', title: `Potencia en el eje${per}`, unit: 'kW', digits: 1, vline: pumpX,
-      series: [{ name: 'P eje', cls: 's1', pts: single.map((p) => [p.Q * 3600, p.Peje / 1000]) }],
+      series: [{ name: 'P eje', cls: 's1', pts: single.map((p) => [p.Q * 3600, p.Peje / 1000]) }, ...testSeries((p) => p.P)],
       markers: r.pA ? [{ x: pumpX, y: r.pA.Peje / 1000, cls: 'op' }] : [],
     },
     {
@@ -190,6 +228,7 @@ function updateCurves(r) {
     },
   ];
   drawCurves($('curves'), { xMax, xLabel: combo ? 'Q (m³/h): del conjunto en H; de cada bomba en ηT, P y ANPA' : 'Caudal Q (m³/h)', charts });
+  drawTestSheet(sheet, tp, r);
   const rows = Array.from({ length: 11 }, (_, i) => {
     const Q = (r.A.qMax * i) / 10;
     const p = pump.at(Q, r.optsA);
@@ -277,7 +316,14 @@ function update3d(r) {
       ? '<span>A escala real · gris translúcido = referencia · pasá el mouse por un parámetro de diseño para ver su cota</span>'
       : `<span>Cámara lenta 1 : ${Math.round(1 / ts)} · ${frameTxt}${two ? ` · bomba ${shownPump + 1}` : ''}</span>`;
   $('pumpPicker').classList.toggle('hidden', view !== 'pump' || !two);
-  document.querySelectorAll('[data-pump]').forEach((b) => b.classList.toggle('active', Number(b.dataset.pump) === shownPump));
+  // Quick selector in the viewport for one pump, series or parallel (same as the panel).
+document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => {
+  state.mode = b.dataset.mode;
+  const sel = $('p-mode');
+  if (sel) sel.value = state.mode;
+  update();
+}));
+document.querySelectorAll('[data-pump]').forEach((b) => b.classList.toggle('active', Number(b.dataset.pump) === shownPump));
 }
 
 // Global drawing style: '3d' (render) or 'plan' (technical drawing).
@@ -304,6 +350,7 @@ function setView(v) {
   for (const id of ['cutBtn', 'frameBtn']) $(id).classList.toggle('hidden', v !== 'pump');
   $('flowBtn').classList.toggle('hidden', v === 'design');
   $('designCtl').classList.toggle('hidden', v !== 'design');
+  $('modeSeg').classList.toggle('hidden', v !== 'plant');
   $('titleBlock').classList.toggle('hidden', v !== 'design' || drawStyle !== 'plan');
   if (result) update3d(result);
 }
@@ -452,6 +499,7 @@ function renderPanes(r) {
 
 function update() {
   result = solve();
+  document.querySelectorAll('[data-mode]').forEach((x) => x.classList.toggle('active', x.dataset.mode === state.mode));
   paramsRef.refresh(state);
   updateKpis(result);
   $('warnings').innerHTML = result.warnings.map((w) => `<li>${w}</li>`).join('');
