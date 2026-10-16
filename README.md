@@ -19,7 +19,24 @@ Requisitos: Python 3 para servir los archivos y Node ≥ 20 para los tests. No h
 ```bash
 make serve      # http://localhost:8000
 make test       # tests del modelo físico (node --test)
+make site       # arma _site/ como lo publica GitHub Pages (ver Publicación)
 ```
+
+### Publicación (GitHub Pages)
+
+Cada push a `main` corre `.github/workflows/pages.yaml`, que arma el sitio con `tools/build_site.py` y lo publica (en *Settings → Pages* la fuente tiene que ser **GitHub Actions**). GitHub Pages sirve todo con ~10 min de caché, así que si se publicaran los archivos tal cual, justo después de un push un visitante podría recibir un `index.html` nuevo con módulos viejos (o al revés) y la app se rompería. Para evitarlo, el script copia `styles.css` y `src/` a una carpeta con el commit y apunta `index.html` ahí:
+
+```
+_site/index.html                → v/3652c590134c/styles.css, v/3652c590134c/src/main.js
+_site/v/3652c590134c/src/…      los imports relativos quedan dentro de la carpeta
+_site/v/5ab5a6e6b456/…          versiones anteriores (las últimas 3), sacadas de git
+_site/styles.css, _site/src/    copia sin versión, para un index.html de antes de este esquema
+```
+
+- Cada versión de la app tiene URLs nuevas, así que ningún caché puede mezclar dos versiones. Un `index.html` viejo en caché sigue cargando sus propios módulos porque su carpeta se conserva.
+- El commit es el último que tocó `index.html`, `styles.css` o `src/`: un push que solo cambia el README no cambia las URLs.
+- Solo entra lo commiteado. Para probarlo: `make site && python3 -m http.server --directory _site 8001`.
+- En desarrollo no cambia nada: `make serve` sirve el repo tal cual y sin caché.
 
 ## Uso
 
