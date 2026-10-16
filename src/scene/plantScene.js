@@ -289,21 +289,29 @@ export class PlantScene {
     this.valveLabel.position.set(vc.x + 0.2, vc.y + 1.5, 0);
     add(this.valveLabel);
 
-    // Gauges at the suction, between pumps (series), discharge and after the valve.
+    // Gauges at the suction, between pumps (series), discharge and after the valve. Each
+    // sits on a short tapping nipple that leaves the pipe at `tap` in direction `dir`.
     this.gauges = [];
-    const gauge = (key, name, pos) => {
+    const gauge = (key, name, tap, dir = V(0, 1, 0)) => {
+      const pos = tap.clone().addScaledVector(dir, PIPE_R + 0.2);
+      const nipple = add(new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.2, 12), this.mat.flange));
+      nipple.position.copy(tap).addScaledVector(dir, PIPE_R + 0.1);
+      nipple.quaternion.setFromUnitVectors(V(0, 1, 0), dir);
       const g = add(new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.06, 24), this.mat.gauge));
-      g.position.copy(pos);
+      // The dial faces the viewer (+z): on a vertical nipple its rim rests on it, on a
+      // horizontal one (along z) its back does.
+      g.position.copy(pos).addScaledVector(dir, Math.abs(dir.z) > 0.5 ? 0.03 : 0.17);
       g.rotation.x = Math.PI / 2;
       const l = label('plant-label gauge', '');
-      l.position.copy(pos).add(new THREE.Vector3(0, 0.42, 0));
+      l.position.copy(g.position).add(new THREE.Vector3(0, 0.42, 0));
       add(l);
       this.gauges.push({ key, name, label: l });
     };
-    gauge('suction', 'Aspiración', V(xHeader - 0.9, sIn.y + 0.3, 0));
-    if (d.mode === 'series') gauge('between', 'Entre bombas', V(0.4, -0.55, 0.5));
-    gauge('discharge', 'Descarga', V(d.mode === 'parallel' ? 2.2 : pumps.at(-1).x + 0.6, yRise + 0.35, 0));
-    gauge('valveOut', 'Tras válvula', V(xValve + 1.9, yRise + 0.35, 0));
+    gauge('suction', 'Aspiración', V(xHeader - 0.9, sIn.y, 0));
+    if (d.mode === 'series') gauge('between', 'Entre bombas', V(0.4, 0.7, 0), V(0, 0, 1));
+    gauge('discharge', 'Descarga', V(d.mode === 'parallel' ? 2.2 : pumps.at(-1).x + 0.6, yRise, 0));
+    // Between the valve and the riser elbow there is no room for a dial on top: it points at the viewer.
+    gauge('valveOut', 'Tras válvula', V(xValve + 1.05, yRise, 0), V(0, 0, 1));
 
     // Dimension lines: Hs (pump axis ↔ suction level) and H_geo (level ↔ level).
     const dim = (x, y0, y1, text) => {
