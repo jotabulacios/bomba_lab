@@ -14,6 +14,7 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { impellerProfile, bladeRow, frontShroudGeometry, voluteGeometry } from './pumpGeometry.js';
 
 const RAD = Math.PI / 180;
 const SEG = 10; // streak history samples
@@ -148,64 +149,10 @@ export class PumpScene {
     this.bAt = (r) => b1 + ((b2 - b1) * (r - r1)) / (1 - r1);
     this.betaAt = (r) => g.beta1 + ((g.beta2 - g.beta1) * (r - r1)) / (1 - r1);
 
-    // Blade camber θ(r) = −∫ dr / (r tan β): backward-curved, trailing the rotation.
-    const N = 48;
-    const tab = [[r1, 0]];
-    for (let i = 1; i <= N; i++) {
-      const ra = r1 + ((1 - r1) * (i - 1)) / N;
-      const rb = r1 + ((1 - r1) * i) / N;
-      const rm = (ra + rb) / 2;
-      tab.push([rb, tab[i - 1][1] - (rb - ra) / (rm * Math.tan(this.betaAt(rm) * RAD))]);
-    }
-    this.thetaAt = (r) => {
-      if (r <= r1) return 0;
-      const f = Math.min((r - r1) / (1 - r1), 1) * N;
-      const i = Math.min(Math.floor(f), N - 1);
-      return tab[i][1] + (tab[i + 1][1] - tab[i][1]) * (f - i);
-    };
-
-    // Blades: thin strips along the camber, extruded from the back shroud to b(r).
-    const half = (g.t * k) / 2 + 0.006;
-    const blade = new THREE.BufferGeometry();
-    const pos = [];
-    const idx = [];
-    const ring = (r, th) => {
-      const dr = 0.002;
-      const t2 = this.thetaAt(Math.min(r + dr, 1));
-      const t1 = this.thetaAt(Math.max(r - dr, r1));
-      const tx = (Math.min(r + dr, 1) - Math.max(r - dr, r1));
-      // camber direction in (x, y) and its normal
-      const p1 = [Math.max(r - dr, r1) * Math.cos(t1), Math.max(r - dr, r1) * Math.sin(t1)];
-      const p2 = [Math.min(r + dr, 1) * Math.cos(t2), Math.min(r + dr, 1) * Math.sin(t2)];
-      const d = [p2[0] - p1[0], p2[1] - p1[1]];
-      const L = Math.hypot(...d) || tx;
-      return { c: [r * Math.cos(th), r * Math.sin(th)], n: [-d[1] / L, d[0] / L] };
-    };
-    const M = 40;
-    for (let i = 0; i <= M; i++) {
-      const r = r1 + ((1 - r1) * i) / M;
-      const { c, n } = ring(r, this.thetaAt(r));
-      const h = this.bAt(r);
-      for (const s of [-1, 1]) for (const z of [0, h]) pos.push(c[0] + s * half * n[0], c[1] + s * half * n[1], z);
-    }
-    // 4 verts per station: (−,0) (−,h) (+,0) (+,h)
-    for (let i = 0; i < M; i++) {
-      const a = i * 4;
-      const b = a + 4;
-      idx.push(a, b, b + 1, a, b + 1, a + 1); // − side
-      idx.push(a + 2, a + 3, b + 3, a + 2, b + 3, b + 2); // + side
-      idx.push(a + 1, b + 1, b + 3, a + 1, b + 3, a + 3); // top edge
-    }
-    idx.push(0, 1, 3, 0, 3, 2); // leading edge
-    const e = M * 4;
-    idx.push(e, e + 2, e + 3, e, e + 3, e + 1); // trailing edge
-    blade.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    blade.setIndex(idx);
-    blade.computeVertexNormals();
-    const blades = new THREE.InstancedMesh(blade, this.mat.impeller, g.z);
-    const m = new THREE.Matrix4();
-    for (let i = 0; i < g.z; i++) blades.setMatrixAt(i, m.makeRotationZ((i * 2 * Math.PI) / g.z));
-    this.impeller.add(blades);
+    // Blade camber θ(r) = −∫ dr / (r tan β) and channel width b(r) (pumpGeometry.js).
+    const prof = impellerProfile({ r1, r2: 1, b1, b2, beta1: g.beta1, beta2: g.beta2 });
+    this.thetaAt = prof.thetaAt;
+    this.impeller.add(bladeRow(prof, (g.t * k) / 2 + 0.006, g.z, this.mat.impeller));
 
     // Back shroud (disk) and hub boss; front shroud ring (transparent).
     const back = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.05, 96), this.mat.hub);
@@ -220,13 +167,7 @@ export class PumpScene {
     nose.rotation.x = Math.PI / 2;
     nose.position.z = 0.29;
     this.impeller.add(nose);
-    const frontPts = [];
-    for (let i = 0; i <= 24; i++) {
-      const r = r1 + ((1 - r1) * i) / 24;
-      frontPts.push(new THREE.Vector2(r, this.bAt(r) + 0.012));
-    }
-    const frontShroud = new THREE.Mesh(new THREE.LatheGeometry(frontPts, 96), this.mat.front);
-    frontShroud.rotation.x = Math.PI / 2;
+    const frontShroud = new THREE.Mesh(frontShroudGeometry(prof, 0.012), this.mat.front);
     this.frontShroud = frontShroud;
     this.impeller.add(frontShroud);
 
@@ -242,43 +183,8 @@ export class PumpScene {
     const zc = Math.max(this.bAt(1), 0.04) / 2;
     this.zc = zc;
     this.cutPlane.constant = this.cut === false ? 1e3 : zc;
-    const SEG_A = 180;
-    const SEG_C = 28;
-    const vpos = [];
-    const vidx = [];
-    const vring = (cx, cy, cz, ux, uy, rho) => {
-      // circle in the plane spanned by the radial unit (ux, uy, 0) and the axis z
-      for (let j = 0; j < SEG_C; j++) {
-        const t = (j / SEG_C) * Math.PI * 2;
-        vpos.push(cx + rho * Math.cos(t) * ux, cy + rho * Math.cos(t) * uy, cz + rho * Math.sin(t));
-      }
-    };
-    for (let i = 0; i <= SEG_A; i++) {
-      const u = i / SEG_A;
-      const phi = PHI0 + u * 2 * Math.PI;
-      const rho = sectionRho(u);
-      const rc = R3 + rho;
-      vring(rc * Math.cos(phi), rc * Math.sin(phi), zc, Math.cos(phi), Math.sin(phi), rho);
-    }
-    // Diffuser: from the end of the spiral (at φ = 2π, heading +y) straight up.
     const rEnd = R3 + RHO1;
-    const DIFF = 12;
-    for (let i = 1; i <= DIFF; i++) {
-      const v = i / DIFF;
-      vring(rEnd, v * Y_TOP, zc, 1, 0, RHO1 * (1 + 0.25 * v));
-    }
-    const rings = SEG_A + 1 + DIFF;
-    for (let i = 0; i < rings - 1; i++) {
-      for (let j = 0; j < SEG_C; j++) {
-        const a0 = i * SEG_C + j;
-        const a1 = i * SEG_C + ((j + 1) % SEG_C);
-        vidx.push(a0, a0 + SEG_C, a1 + SEG_C, a0, a1 + SEG_C, a1);
-      }
-    }
-    const vol = new THREE.BufferGeometry();
-    vol.setAttribute('position', new THREE.Float32BufferAttribute(vpos, 3));
-    vol.setIndex(vidx);
-    vol.computeVertexNormals();
+    const vol = voluteGeometry({ R3, rho0: RHO0, rho1: RHO1, zc, yTop: Y_TOP });
     this.casing.add(new THREE.Mesh(vol, this.mat.casing));
     // Tongue (cutwater): the sharp wedge where the diffuser leaves the first turn.
     const tongue = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.32, 12), this.mat.casing);
