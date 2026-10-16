@@ -41,10 +41,11 @@ function triangle(title, { u, cu, cm, cuInf }, W) {
 
 /** Plan view of the impeller: z camber lines from r1 to r2 (β1 → β2). */
 function planView(g, beta1, W) {
-  const H = 210;
-  const cx = W / 2;
-  const cy = H / 2;
+  // Room above the impeller for the rotation arrow and below it for the two label lines.
+  const H = 262;
   const R = 92;
+  const cx = W / 2;
+  const cy = 30 + R + 8;
   const r1 = g.D1 / g.D2;
   const N = 40;
   const betaAt = (r) => beta1 + ((g.beta2 - beta1) * (r - r1)) / (1 - r1);
@@ -63,11 +64,11 @@ function planView(g, beta1, W) {
     <circle class="plan-ring" cx="${cx}" cy="${cy}" r="${R}"/>
     <circle class="plan-ring" cx="${cx}" cy="${cy}" r="${R * r1}"/>
     ${blades}
-    <path class="plan-rot" d="M${cx + 30},${cy - 102} A105,105 0 0 0 ${cx - 30},${cy - 102}"/>
-    <path class="plan-rot-head" d="M${cx - 30},${cy - 102} l9,-5 l-1,10 z"/>
-    <text class="plan-txt" x="${cx}" y="${cy - 110}" text-anchor="middle">giro</text>
-    <text class="plan-txt" x="6" y="${H - 22}">D1 = ${(g.D1 * 1000).toFixed(0)} mm · β1 = ${beta1.toFixed(1)}°</text>
-    <text class="plan-txt" x="6" y="${H - 8}">D2 = ${(g.D2 * 1000).toFixed(0)} mm · β2 = ${g.beta2.toFixed(0)}° · z = ${g.z}</text>
+    <path class="plan-rot" d="M${cx + 34},${cy - R - 10} A${R + 14},${R + 14} 0 0 0 ${cx - 34},${cy - R - 10}"/>
+    <path class="plan-rot-head" d="M${cx - 34},${cy - R - 10} l9,-5 l-1,10 z"/>
+    <text class="plan-txt" x="${cx}" y="${cy - R - 18}" text-anchor="middle">giro</text>
+    <text class="plan-txt" x="6" y="${H - 20}">D1 = ${(g.D1 * 1000).toFixed(0)} mm · β1 = ${beta1.toFixed(1)}°</text>
+    <text class="plan-txt" x="6" y="${H - 6}">D2 = ${(g.D2 * 1000).toFixed(0)} mm · β2 = ${g.beta2.toFixed(0)}° · z = ${g.z}</text>
   </svg>`;
 }
 
