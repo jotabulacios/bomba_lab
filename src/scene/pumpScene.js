@@ -33,7 +33,7 @@ const wrapU = (phi) => ((((phi - PHI0) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Ma
 export class PumpScene {
   constructor(host, count = 900) {
     this.host = host;
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, stencil: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.localClippingEnabled = true;
