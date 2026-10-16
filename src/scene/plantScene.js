@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
-import { applyPlanStyle, flatMaterial, levelMark, instrumentBubble, tag, flowArrow, setOrthographic, resizeOrtho, INK, INK_BLUEPRINT } from './drawingStyle.js';
+import { applyPlanStyle, flatMaterial, levelMark, instrumentBubble, tag, flowArrow, declutterLabels, setOrthographic, resizeOrtho, INK, INK_BLUEPRINT } from './drawingStyle.js';
 import { lineList, velocity } from '../physics/piping.js';
 
 const Y = (z) => 3 * Math.asinh(z / 3); // display height of an elevation z (m)
@@ -605,5 +605,15 @@ export class PlantScene {
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
     this.labels.render(this.scene, this.camera);
+    // Reading label boxes forces a layout, so the drawing is decluttered a few times a second.
+    const now = performance.now();
+    if (this.plan && this.drawingGroup && now - (this.declutteredAt ?? 0) > 150) {
+      this.declutteredAt = now;
+      const shown = [];
+      this.parts.traverseVisible((o) => { if (o.isCSS2DObject) shown.push(o); });
+      const b = this.labels.domElement.getBoundingClientRect();
+      // Keep clear of the view toolbar on the right edge.
+      declutterLabels(shown, new DOMRect(b.left, b.top, b.width - 56, b.height));
+    }
   }
 }

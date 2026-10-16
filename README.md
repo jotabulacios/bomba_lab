@@ -85,7 +85,7 @@ index.html ── src/main.js ─┬─ physics/fluid.js       agua (ρ, pv por 
                            ├─ scene/designScene.js   diseño a escala real, cortes A-A / B-B, cotas, fantasma
                            ├─ scene/solids.js        sólidos cerrados (carcasa, rodete, álabes) sin three.js
                            ├─ scene/sectionCaps.js   relleno rayado de los cortes (capping por stencil)
-                           ├─ scene/drawingStyle.js  estilo Plano: relleno plano, aristas, contornos, tags, ▽, PI
+                           ├─ scene/drawingStyle.js  estilo Plano: relleno plano, aristas, contornos, tags, ▽, PI, anti-solape
                            ├─ scene/pumpGeometry.js  geometría compartida: álabes, tapa, voluta
                            └─ ui/                    curvas, pestañas, P&ID (pidPane), cajetín y PNG (titleBlock)
 ```
@@ -131,6 +131,7 @@ parámetros ─▶ buildPump(spec) (calibración en el punto de diseño, solo si
   - **Capping por stencil:** por cada grupo de piezas, las caras traseras suman y las delanteras restan en el stencil, sin test de profundidad. Donde el plano cruza material el stencil queda distinto de cero, y ahí se dibuja el plano rayado del grupo, que además lo vuelve a cero. Un grupo por rayado.
   - **Contornos:** con la técnica de casco invertido (caras traseras desplazadas por la normal), así los tubos y las esferas tienen silueta desde cualquier ángulo. Las aristas vivas salen de `EdgesGeometry`.
   - **Escala del cajetín:** se calcula para una pantalla de 96 ppp y se redondea a la escala normal más cercana. Es aproximada.
+  - **Pantallas angostas:** `main.js` marca el viewport `narrow` (< 680 px) o `tiny` (< 480 px). Ahí los tags y burbujas usan letra más chica, y el cajetín se compacta (en `tiny` deja vista, escala y punto de diseño). El PNG lo copia como se ve, cortando las líneas igual que la página. Además, en la instalación, `declutterLabels` (drawingStyle.js) revisa unas 6 veces por segundo los rótulos visibles por prioridad (tags de equipos, PI, números de línea y cotas, el resto). Un rótulo secundario que pisa a otro prueba correrse arriba, abajo o a los lados. Si no hay lugar se oculta, y vuelve solo al hacer zoom. Los rótulos tampoco se salen del viewport ni quedan bajo la barra de herramientas.
 - **Preset Ruhrpumpen:** se ajustó por mínimos cuadrados acotados a la hoja de ensayo del apunte (p. 48).
   - Altura: dentro del ~6 % en todos los puntos.
   - Punto garantizado: dentro del 1 %.

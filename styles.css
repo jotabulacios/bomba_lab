@@ -394,17 +394,39 @@ table.data td.up { color: var(--s3); } table.data td.down { color: var(--s2); }
 .cut-title { font-family: var(--mono); font-weight: 700; font-size: 13px; letter-spacing: .08em; color: var(--ink); border-bottom: 2px solid currentColor; pointer-events: none; }
 .design-labels.plan .cut-title { color: #1d2329; }
 :root[data-theme="dark"] .design-labels.plan .cut-title { color: #e6f0fb; }
-.title-block { position: absolute; right: 12px; bottom: 12px; z-index: 3; width: 330px; font-family: var(--mono); font-size: 10.5px; color: #1d2329; background: #fff; border: 2px solid #1d2329; pointer-events: none; }
+.title-block { position: absolute; right: 12px; bottom: 12px; z-index: 3; width: min(330px, calc(100% - 24px)); font-family: var(--mono); font-size: 10.5px; color: #1d2329; background: #fff; border: 2px solid #1d2329; pointer-events: none; }
 .title-block .tb-title { font-weight: 700; padding: 5px 7px; border-bottom: 1.5px solid #1d2329; }
-.title-block .tb-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; }
-.title-block .tb-cell { padding: 3px 7px; border-right: 1px solid #1d2329; border-bottom: 1px solid #1d2329; display: flex; flex-direction: column; }
-.title-block .tb-cell:nth-child(3n) { border-right: none; }
-.title-block .tb-cell.wide { grid-column: span 1; }
-.title-block .tb-cell:nth-last-child(-n+3) { border-bottom: none; }
+/* Cell rules are the grid background showing through 1px gaps (no per-cell borders, so cells can be hidden). */
+.title-block .tb-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: #1d2329; }
+.title-block .tb-cell { padding: 3px 7px; display: flex; flex-direction: column; min-width: 0; background: #fff; }
 .title-block small { font-size: 8.5px; color: #6b7480; }
 :root[data-theme="dark"] .title-block { background: #0f2a4a; color: #e6f0fb; border-color: #e6f0fb; }
-:root[data-theme="dark"] .title-block .tb-title, :root[data-theme="dark"] .title-block .tb-cell { border-color: #e6f0fb; }
+:root[data-theme="dark"] .title-block .tb-title { border-color: #e6f0fb; }
+:root[data-theme="dark"] .title-block .tb-grid { background: #e6f0fb; }
+:root[data-theme="dark"] .title-block .tb-cell { background: #0f2a4a; }
 :root[data-theme="dark"] .title-block small { color: #8fa8c4; }
+/* Narrow viewports (classes set from the viewport width in main.js): smaller annotations,
+   a compact title block, and secondary cells dropped when it is really tight. */
+.viewport.narrow .title-block { width: min(250px, calc(100% - 16px)); right: 8px; bottom: 8px; font-size: 9px; border-width: 1.5px; }
+.viewport.narrow .title-block .tb-title { padding: 3px 5px; font-size: 9px; }
+.viewport.narrow .title-block .tb-cell { padding: 2px 5px; }
+.viewport.narrow .title-block small { font-size: 7.5px; }
+.viewport.tiny .title-block { width: min(190px, calc(100% - 16px)); }
+.viewport.tiny .title-block .tb-grid { grid-template-columns: 1fr 1fr; }
+.viewport.tiny .title-block .tb-cell.opt { display: none; }
+.viewport.tiny .title-block .tb-cell.design { grid-column: 1 / -1; }
+/* The design hint and the title block share the bottom edge; when narrow the hint gives way. */
+.viewport:has(.title-block:not(.hidden)) .legend { max-width: calc(100% - 366px); }
+.viewport.narrow:has(.title-block:not(.hidden)) .legend { display: none; }
+.viewport.narrow .eq-tag, .viewport.narrow .line-tag, .viewport.narrow .level-mark, .viewport.narrow .iso-dim, .viewport.narrow .isa-bubble { font-size: 9px; }
+.viewport.narrow .eq-tag b, .viewport.narrow .line-tag b { font-size: 9.5px; }
+.viewport.narrow .eq-tag { padding: 1px 4px; }
+.viewport.narrow .eq-tag.small { font-size: 8.5px; }
+.viewport.narrow .isa-bubble .circle { width: 27px; height: 27px; }
+.viewport.narrow .isa-bubble .circle b { font-size: 8.5px; }
+.viewport.narrow .isa-bubble .circle span, .viewport.narrow .isa-bubble .val { font-size: 8px; }
+.viewport.narrow .design-labels.plan .dim-label { font-size: 9.5px; }
+.declutter-hidden { visibility: hidden; }
 
 /* Measured test points (Ruhrpumpen sheet) */
 .cv-pt { fill: var(--surface); stroke: var(--ink); stroke-width: 1.6; }

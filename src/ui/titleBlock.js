@@ -42,8 +42,28 @@ function drawElement(ctx, el, ox, oy) {
   ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
   ctx.textBaseline = 'middle';
   ctx.textAlign = cs.textAlign === 'center' ? 'center' : 'left';
-  const px = ctx.textAlign === 'center' ? x + r.width / 2 : x + (parseFloat(cs.paddingLeft) || 0) + bw;
-  ctx.fillText(text, px, y + r.height / 2);
+  const padL = (parseFloat(cs.paddingLeft) || 0) + bw;
+  const px = ctx.textAlign === 'center' ? x + r.width / 2 : x + padL;
+  // The page wraps long text (compact title block), so the canvas has to wrap it too.
+  const lines = wrapText(ctx, text, r.width - padL - (parseFloat(cs.paddingRight) || 0) - bw + 1);
+  const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2;
+  const y0 = y + r.height / 2 - ((lines.length - 1) * lh) / 2;
+  lines.forEach((line, i) => ctx.fillText(line, px, y0 + i * lh));
+}
+
+function wrapText(ctx, text, width) {
+  if (ctx.measureText(text).width <= width) return [text];
+  const lines = [];
+  let line = '';
+  for (const word of text.split(/\s+/)) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(next).width > width) {
+      lines.push(line);
+      line = word;
+    } else line = next;
+  }
+  if (line) lines.push(line);
+  return lines;
 }
 
 /**
