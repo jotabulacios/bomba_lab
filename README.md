@@ -19,7 +19,24 @@ Requisitos: Python 3 para servir los archivos y Node ≥ 20 para los tests. No h
 ```bash
 make serve      # http://localhost:8000
 make test       # tests del modelo físico (node --test)
+make site       # arma _site/ como lo publica GitHub Pages (ver Publicación)
 ```
+
+### Publicación (GitHub Pages)
+
+Cada push a `main` corre `.github/workflows/pages.yaml`, que arma el sitio con `tools/build_site.py` y lo publica (en *Settings → Pages* la fuente tiene que ser **GitHub Actions**). GitHub Pages sirve todo con ~10 min de caché, así que si se publicaran los archivos tal cual, justo después de un push un visitante podría recibir un `index.html` nuevo con módulos viejos (o al revés) y la app se rompería. Para evitarlo, el script copia `styles.css` y `src/` a una carpeta con el commit y apunta `index.html` ahí:
+
+```
+_site/index.html                → v/3652c590134c/styles.css, v/3652c590134c/src/main.js
+_site/v/3652c590134c/src/…      los imports relativos quedan dentro de la carpeta
+_site/v/5ab5a6e6b456/…          versiones anteriores (las últimas 3), sacadas de git
+_site/styles.css, _site/src/    copia sin versión, para un index.html de antes de este esquema
+```
+
+- Cada versión de la app tiene URLs nuevas, así que ningún caché puede mezclar dos versiones. Un `index.html` viejo en caché sigue cargando sus propios módulos porque su carpeta se conserva.
+- El commit es el último que tocó `index.html`, `styles.css` o `src/`: un push que solo cambia el README no cambia las URLs.
+- Solo entra lo commiteado. Para probarlo: `make site && python3 -m http.server --directory _site 8001`.
+- En desarrollo no cambia nada: `make serve` sirve el repo tal cual y sin caché.
 
 ## Uso
 
@@ -70,7 +87,7 @@ index.html ── src/main.js ─┬─ physics/fluid.js       agua (ρ, pv por 
                            ├─ scene/designScene.js   diseño a escala real, cortes A-A / B-B, cotas, fantasma
                            ├─ scene/solids.js        sólidos cerrados (carcasa, rodete, álabes) sin three.js
                            ├─ scene/sectionCaps.js   relleno rayado de los cortes (capping por stencil)
-                           ├─ scene/drawingStyle.js  estilo Plano: relleno plano, aristas, contornos, tags, ▽, PI
+                           ├─ scene/drawingStyle.js  estilo Plano: relleno plano, aristas, contornos, tags, ▽, PI, anti-solape
                            ├─ scene/pumpGeometry.js  geometría compartida: álabes, tapa, voluta
                            └─ ui/                    curvas, pestañas, P&ID (pidPane), cajetín y PNG (titleBlock)
 ```
@@ -119,6 +136,7 @@ parámetros ─▶ buildPump(spec) (calibración en el punto de diseño, solo si
   - **Capping por stencil:** por cada grupo de piezas, las caras traseras suman y las delanteras restan en el stencil, sin test de profundidad. Donde el plano cruza material el stencil queda distinto de cero, y ahí se dibuja el plano rayado del grupo, que además lo vuelve a cero. Un grupo por rayado.
   - **Contornos:** con la técnica de casco invertido (caras traseras desplazadas por la normal), así los tubos y las esferas tienen silueta desde cualquier ángulo. Las aristas vivas salen de `EdgesGeometry`.
   - **Escala del cajetín:** se calcula para una pantalla de 96 ppp y se redondea a la escala normal más cercana. Es aproximada.
+  - **Pantallas angostas:** `main.js` marca el viewport `narrow` (< 680 px) o `tiny` (< 480 px). Ahí los tags y burbujas usan letra más chica, y el cajetín se compacta (en `tiny` deja vista, escala y punto de diseño). El PNG lo copia como se ve, cortando las líneas igual que la página. Además, en la instalación, `declutterLabels` (drawingStyle.js) revisa unas 6 veces por segundo los rótulos visibles por prioridad (tags de equipos, PI, números de línea y cotas, el resto). Un rótulo secundario que pisa a otro prueba correrse arriba, abajo o a los lados. Si no hay lugar se oculta, y vuelve solo al hacer zoom. Los rótulos tampoco se salen del viewport ni quedan bajo la barra de herramientas.
 - **Preset Ruhrpumpen:** se ajustó por mínimos cuadrados acotados a la hoja de ensayo del apunte (p. 48).
   - Altura: dentro del ~6 % en todos los puntos.
   - Punto garantizado: dentro del 1 %.

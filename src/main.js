@@ -619,6 +619,10 @@ function resize3d() {
   scene3d.resize();
   const host = $('canvasHost');
   if (host.clientWidth && host.clientHeight) { plant.resize(host.clientWidth, host.clientHeight); design.resize(host.clientWidth, host.clientHeight); }
+  // Narrow viewports get smaller drawing annotations and a compact title block (styles.css).
+  const w = $('viewport').clientWidth;
+  $('viewport').classList.toggle('narrow', w > 0 && w < 680);
+  $('viewport').classList.toggle('tiny', w > 0 && w < 480);
 }
 new ResizeObserver(resize3d).observe($('viewport'));
 

@@ -173,6 +173,54 @@ export function tag(pos, html, cls = 'eq-tag') {
   return t;
 }
 
+// Which annotation wins when two overlap: equipment tags, then instruments, then the rest.
+const LABEL_PRIORITY = [['eq-tag small', 1], ['eq-tag', 4], ['isa-bubble', 3], ['iso-dim', 2], ['line-tag', 2], ['level-mark', 1]];
+
+function labelPriority(el) {
+  for (const [cls, p] of LABEL_PRIORITY) if (cls.split(' ').every((c) => el.classList.contains(c))) return p;
+  return 0;
+}
+
+/**
+ * Keep CSS2D labels from overlapping, so narrow viewports or a zoomed-out drawing stay
+ * readable. Greedy, by priority and then scene order: a secondary label first tries a few
+ * nudged positions (above, below, to the sides; via the CSS `translate` property, which the
+ * CSS2D renderer leaves alone) and is hidden only if none is free. Hidden labels keep their
+ * layout box, so they come back on their own once there is room again. With `bounds` (a
+ * DOMRect), labels are also pushed back inside it.
+ */
+export function declutterLabels(objects, bounds = null, pad = 2) {
+  const items = objects
+    .map((o, i) => ({ el: o.element, p: labelPriority(o.element), i }))
+    .sort((a, b) => b.p - a.p || a.i - b.i);
+  const kept = [];
+  const free = (r) => !kept.some((k) => r.left < k.right + pad && r.right > k.left - pad && r.top < k.bottom + pad && r.bottom > k.top - pad);
+  for (const it of items) {
+    const r = it.el.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    const [nx, ny] = it.el.nudge ?? [0, 0];
+    const w = r.width;
+    const h = r.height;
+    const tries = it.p >= 3 ? [[0, 0]] : [[0, 0], [0, -h - pad], [0, h + pad], [w / 2 + pad, 0], [-w / 2 - pad, 0]];
+    let pick = null;
+    for (let [dx, dy] of tries) {
+      if (bounds) {
+        const x0 = r.left - nx + dx;
+        const y0 = r.top - ny + dy;
+        dx += Math.max(0, bounds.left + pad - x0) - Math.max(0, x0 + w - bounds.right + pad);
+        dy += Math.max(0, bounds.top + pad - y0) - Math.max(0, y0 + h - bounds.bottom + pad);
+      }
+      const c = { left: r.left - nx + dx, right: r.right - nx + dx, top: r.top - ny + dy, bottom: r.bottom - ny + dy };
+      if (free(c)) { pick = [dx, dy, c]; break; }
+    }
+    it.el.classList.toggle('declutter-hidden', !pick);
+    if (!pick) continue;
+    it.el.nudge = [pick[0], pick[1]];
+    it.el.style.translate = pick[0] || pick[1] ? `${pick[0]}px ${pick[1]}px` : '';
+    kept.push(pick[2]);
+  }
+}
+
 /** Flow arrow (cone) at `pos` pointing along `dir`. */
 export function flowArrow(pos, dir, size, color = INK) {
   const cone = new THREE.Mesh(new THREE.ConeGeometry(size * 0.45, size, 14), new THREE.MeshBasicMaterial({ color }));
