@@ -41,7 +41,7 @@ export const TP4_TEST = {
   D2: 0.0718, // from the fit (PRESETS.tp4)
   power: 'electric',
   etaPump: 0.5, // best η of the pump alone, Grundfos catalogue curve in the TP guide (≈ 50 %)
-  motor: { eta: 0.8, P0: 0.1265 }, // fitted: η of the motor and its no-load loss (kW)
+  motor: { eta: 0.8, P0: 0.1225 }, // fitted: η of the motor and its no-load loss (kW)
   points: [
     [0, 18.0, 308, 0], [13.9, 17.05, 358, 0.110], [30.0, 16.0, 411, 0.192], [41.0, 15.45, 435, 0.239],
     [52.2, 14.9, 446, 0.284], [61.3, 14.1, 465, 0.305], [68.5, 13.55, 482, 0.314], [75.5, 12.7, 501, 0.312],
@@ -51,12 +51,15 @@ export const TP4_TEST = {
 
 /**
  * Test points scaled by the affinity laws to speed n and impeller diameter D2 (trim);
- * efficiency is kept (homologous points).
+ * efficiency is kept (homologous points). A measured NPSH goes with n² only: trimming
+ * the outer diameter does not change the impeller eye.
  */
 export function scaledTestPoints(test, n, D2 = test.D2) {
   return test.points.map((p) => {
     const a = affinity({ Q: p.Q, H: p.H, P: p.P }, { n1: test.n, n2: n, D1: test.D2, D2 });
-    return { Q: a.Q, H: a.H, P: a.P, eta: p.eta };
+    const q = { Q: a.Q, H: a.H, P: a.P, eta: p.eta };
+    if (Number.isFinite(p.NPSH)) q.NPSH = p.NPSH * (n / test.n) ** 2;
+    return q;
   });
 }
 

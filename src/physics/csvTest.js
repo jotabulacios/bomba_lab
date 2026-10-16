@@ -3,6 +3,9 @@
 //    ("Q [l/min]", "H [m]", "P [W]", "eta [%]"), and
 //  - the raw sheet of the TP guide: Q [l/min], Ps [kg/cm2] (discharge gauge), Pe [mmHg]
 //    (suction vacuum gauge), V, I, cos φ → H = Ps + Pe in metres of water, P = V·I·cos φ.
+// Either layout may add the required NPSH measured at each flow (ISO 9906 NPSH3, head drop
+// of 3 %; the TP guide takes 0.1 kgf/cm²) in a column "NPSH", "NPSHr", "NPSH3", "ANPA" or
+// "ANPAr" (m by default).
 // Separators: comma, semicolon or tab; with ';' or tab a decimal comma is fine.
 
 const RHO_G = 998.2 * 9.80665;
@@ -22,6 +25,7 @@ function nameUnit(cell) {
 
 function classify(name) {
   const n = name.replace(/[_.\-]/g, '');
+  if (/^(npsh|anpa)(r|req|3|requerida)?$/.test(n)) return 'NPSH';
   if (/^(q|caudal|flow)/.test(n)) return 'Q';
   if (/^(ps|pdesc|pimp|pd|p2man)$/.test(n)) return 'Ps';
   if (/^(pe|pasp|pvac|psuc|pa)$/.test(n)) return 'Pe';
@@ -35,7 +39,7 @@ function classify(name) {
 }
 
 /**
- * @returns { points: [{ Q m³/h, H m, P? kW, eta? }], power: 'electric' | 'shaft' | null, columns, warnings }
+ * @returns { points: [{ Q m³/h, H m, P? kW, eta?, NPSH? m }], power: 'electric' | 'shaft' | null, columns, warnings }
  * @throws if there is no flow or no head (or gauge pressures) column
  */
 export function parseTestCSV(text) {
@@ -85,7 +89,11 @@ export function parseTestCSV(text) {
     }
     let eta = r.eta * ef;
     if (!Number.isFinite(eta) && Number.isFinite(P) && P > 0) eta = (RHO_G * (Q / 3600) * H) / (P * 1000);
-    return { Q, H, P: Number.isFinite(P) ? P : undefined, eta: Number.isFinite(eta) ? eta : undefined };
+    const NPSH = r.NPSH * press(units.NPSH, 'm');
+    return {
+      Q, H, P: Number.isFinite(P) ? P : undefined, eta: Number.isFinite(eta) ? eta : undefined,
+      ...(Number.isFinite(NPSH) ? { NPSH } : {}),
+    };
   }).filter((p) => Number.isFinite(p.Q) && Number.isFinite(p.H));
   if ('Ps' in cols && !('H' in cols) && !('Pe' in cols)) warnings.push('Sin presión de aspiración (Pe): H = Ps, sin sumar el vacío en la aspiración.');
   if (('V' in cols) && !('cos' in cols) && !('P' in cols)) warnings.push('Sin cos φ: la potencia eléctrica es V·I (aparente).');

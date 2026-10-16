@@ -1,8 +1,10 @@
 // Fit the pump model to measured test points: given Q–H (and optionally η and power) at a
 // known speed and number of stages, find an impeller (D2, b2, Q_d) and loss constants
-// (ηh, shock ratio, ηm, motor efficiency) that reproduce them. The blade angle β2, the
-// number of blades z and the inlet proportions are kept from a base design; only the
-// sizes scale. Nelder–Mead on bounded parameters (sigmoid transform), several restarts.
+// (ηh, shock ratio, ηm, part-load recirculation, motor efficiency) that reproduce them.
+// The blade angle β2, the number of blades z and the inlet proportions are kept from a
+// base design; only the sizes scale. Nelder–Mead on bounded parameters (sigmoid
+// transform), several restarts. Measured NPSH points then fix the ANPAr coefficients
+// λc and λw, which enter linearly: a bounded linear least-squares fit.
 
 import { buildPump, DEFAULT_SPEC } from './pump.js';
 import { G } from './fluid.js';
@@ -62,15 +64,54 @@ export function nelderMead(f, x0, { step = 0.5, iters = 800, tol = 1e-10 } = {})
 export function modelAt(pump, Qh, { n, D2, electric, motor = { eta: 1, P0: 0 } }) {
   const r = pump.at(Qh / 3600, { n, D2, rho: RHO });
   const P = electric ? motor.P0 + r.Peje / 1000 / motor.eta : r.Peje / 1000;
-  return { H: r.H, P, eta: P > 0 ? r.Pfl / 1000 / P : 0 };
+  return { H: r.H, P, eta: P > 0 ? r.Pfl / 1000 / P : 0, NPSH: r.NPSHr };
+}
+
+// Physical range of the ANPAr coefficients: λc ≥ 1 (the inlet meridional kinetic energy
+// is lost at least once); λw covers incipient to 3 % head-drop NPSH (Gülich, Centrifugal Pumps).
+export const LAMBDA_BOUNDS = { c: [1, 3], w: [0.05, 1] };
+
+/**
+ * λc, λw minimising the relative error of NPSHr = λc·a + λw·b (a = cm1²/2g, b = w1²/2g at
+ * each measured flow) within LAMBDA_BOUNDS. With a single point the base ratio λw/λc is kept.
+ * @param pump buildPump() result with the fitted geometry
+ * @param pts [{ Q m³/h, NPSH m }] at speed n
+ */
+export function fitLambda(pump, pts, { n, D2 }) {
+  const s = pump.spec;
+  const rows = pts.map((p) => {
+    const a = buildPump({ ...s, lambdaC: 1, lambdaW: 0 }).at(p.Q / 3600, { n, D2, rho: RHO }).NPSHr;
+    const b = buildPump({ ...s, lambdaC: 0, lambdaW: 1 }).at(p.Q / 3600, { n, D2, rho: RHO }).NPSHr;
+    return { a: a / p.NPSH, b: b / p.NPSH }; // relative residual: λc·a + λw·b − 1
+  });
+  const [cLo, cHi] = LAMBDA_BOUNDS.c;
+  const [wLo, wHi] = LAMBDA_BOUNDS.w;
+  const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+  const sse = (c, w) => rows.reduce((e, r) => e + (c * r.a + w * r.b - 1) ** 2, 0);
+  const S = (f) => rows.reduce((t, r) => t + f(r), 0);
+  const aa = S((r) => r.a * r.a), bb = S((r) => r.b * r.b), ab = S((r) => r.a * r.b), a1 = S((r) => r.a), b1 = S((r) => r.b);
+  const cands = [];
+  const det = aa * bb - ab * ab;
+  if (rows.length >= 2 && det > 1e-12 * aa * bb) cands.push([(a1 * bb - b1 * ab) / det, (b1 * aa - a1 * ab) / det]);
+  else {
+    const k = s.lambdaW / s.lambdaC; // keep the base proportion, fit the scale
+    const c = S((r) => r.a + k * r.b) / S((r) => (r.a + k * r.b) ** 2);
+    cands.push([c, k * c]);
+  }
+  // On each edge of the box the other coefficient is a 1-D least-squares problem.
+  for (const c of [cLo, cHi]) cands.push([c, clamp((b1 - c * ab) / bb, wLo, wHi)]);
+  for (const w of [wLo, wHi]) cands.push([clamp((a1 - w * ab) / aa, cLo, cHi), w]);
+  const ok = cands.map(([c, w]) => [clamp(c, cLo, cHi), clamp(w, wLo, wHi)]);
+  const [lambdaC, lambdaW] = ok.reduce((m, x) => (sse(...x) < sse(...m) ? x : m));
+  return { lambdaC, lambdaW };
 }
 
 /**
- * @param test { n, stages, power: 'shaft' | 'electric', points: [{ Q m³/h, H m, P? kW, eta? }],
+ * @param test { n, stages, power: 'shaft' | 'electric', points: [{ Q m³/h, H m, P? kW, eta?, NPSH? m }],
  *               etaPump?: best efficiency of the pump alone (e.g. from the catalogue), which
  *               splits motor and pump losses when only electrical power was measured }
  * @param base base design to keep β2, z and the proportions from (default: the didactic pump)
- * @returns { spec, motor: { eta, P0 kW }, rms: { H, eta, P }, worstH }
+ * @returns { spec, motor: { eta, P0 kW }, rms: { H, eta, P, NPSH }, worstH }
  */
 export function fitPump(test, base = DEFAULT_SPEC) {
   const pts = test.points.filter((p) => Number.isFinite(p.Q) && Number.isFinite(p.H));
@@ -95,6 +136,11 @@ export function fitPump(test, base = DEFAULT_SPEC) {
     shock: bounded(0.2, 12),
     etaMd: bounded(0.6, 0.995),
   };
+  // Recirculation only shows in the power drawn at part load: fit it when power or η was measured.
+  if (withP.length || withEta.length) {
+    T.recirc = bounded(0, 1);
+    T.recircOnset = bounded(0.3, 1);
+  }
   if (electric) {
     T.etaMotor = bounded(0.55, 0.8); // small induction motors; power alone cannot separate motor and pump losses
     T.P0 = bounded(0, 0.8 * Pmax);
@@ -107,6 +153,7 @@ export function fitPump(test, base = DEFAULT_SPEC) {
     ...base, name: test.name ?? 'Ensayo propio', n, stages,
     D2: v.D2, b2: v.b2r * v.D2, D1: r1 * v.D2, b1: Math.min(rb1 * v.b2r * v.D2, 0.6 * r1 * v.D2), t: rt * v.D2,
     Qd: v.Qd, etaHd: v.etaHd, shockRatio: v.shock, etaMd: v.etaMd,
+    recirc: v.recirc ?? base.recirc, recircOnset: v.recircOnset ?? base.recircOnset,
   });
   const decode = (x) => Object.fromEntries(keys.map((k, i) => [k, T[k].to(x[i])]));
   const cost = (x) => {
@@ -125,7 +172,7 @@ export function fitPump(test, base = DEFAULT_SPEC) {
     if (Number.isFinite(test.etaPump)) e += ((pump.bep({ n, D2: v.D2, rho: RHO }).etaT - test.etaPump) / 0.03) ** 2 * 0.01;
     return e;
   };
-  const guess = { D2: D2g, b2r: 0.05, Qd: (1.1 * etaPeak.Q) / 3600, etaHd: 0.8, shock: 3, etaMd: 0.95, etaMotor: 0.8, P0: 0.3 * Pmax };
+  const guess = { D2: D2g, b2r: 0.05, Qd: (1.1 * etaPeak.Q) / 3600, etaHd: 0.8, shock: 3, etaMd: 0.95, recirc: base.recirc, recircOnset: base.recircOnset, etaMotor: 0.8, P0: 0.3 * Pmax };
   let best = { x: keys.map((k) => T[k].from(guess[k])), f: Infinity };
   best.f = cost(best.x);
   for (let restart = 0; restart < 6; restart++) {
@@ -133,18 +180,25 @@ export function fitPump(test, base = DEFAULT_SPEC) {
     if (r.f < best.f - 1e-12) best = r; else if (restart > 1) break;
   }
   const v = decode(best.x);
-  const spec = specOf(v);
+  let spec = specOf(v);
+  const withNPSH = pts.filter((p) => Number.isFinite(p.NPSH) && p.NPSH > 0);
+  if (withNPSH.length) spec = { ...spec, ...fitLambda(buildPump(spec), withNPSH, { n, D2: v.D2 }) };
   const pump = buildPump(spec);
   const motor = electric ? { eta: v.etaMotor, P0: v.P0 } : { eta: 1, P0: 0 };
   const errs = pts.map((p) => {
     const m = modelAt(pump, p.Q, { n, D2: v.D2, electric, motor });
-    return { dH: (m.H - p.H) / p.H, deta: Number.isFinite(p.eta) && p.Q > 0 ? m.eta - p.eta : null, dP: Number.isFinite(p.P) ? (m.P - p.P) / p.P : null };
+    return {
+      dH: (m.H - p.H) / p.H,
+      deta: Number.isFinite(p.eta) && p.Q > 0 ? m.eta - p.eta : null,
+      dP: Number.isFinite(p.P) ? (m.P - p.P) / p.P : null,
+      dN: Number.isFinite(p.NPSH) && p.NPSH > 0 ? (m.NPSH - p.NPSH) / p.NPSH : null,
+    };
   });
   const rms = (a) => (a.length ? Math.sqrt(a.reduce((s, x) => s + x * x, 0) / a.length) : null);
   return {
     spec,
     motor,
-    rms: { H: rms(errs.map((e) => e.dH)), eta: rms(errs.filter((e) => e.deta !== null).map((e) => e.deta)), P: rms(errs.filter((e) => e.dP !== null).map((e) => e.dP)) },
+    rms: { H: rms(errs.map((e) => e.dH)), eta: rms(errs.filter((e) => e.deta !== null).map((e) => e.deta)), P: rms(errs.filter((e) => e.dP !== null).map((e) => e.dP)), NPSH: rms(errs.filter((e) => e.dN !== null).map((e) => e.dN)) },
     worstH: Math.max(...errs.map((e) => Math.abs(e.dH))),
   };
 }

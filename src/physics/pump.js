@@ -1,6 +1,6 @@
 // Centrifugal pump: Euler head with optional finite-blade slip, the two loss terms of the
 // course notes (friction ∝ Q² and shock ∝ (Q − Q_shock)²), leakage, mechanical losses and
-// a required-NPSH (ANPAr) correlation.
+// a recirculation loss at part load and a required-NPSH (ANPAr) correlation.
 //
 // Conventions (apunte 13): stations 1 = impeller inlet, 2 = outlet; c absolute, w
 // relative, u blade speed; cm meridional, cu tangential; β measured from the
@@ -27,14 +27,19 @@ export const DEFAULT_SPEC = {
   shockRatio: 3.0, // k_i / k_f (puts the best-efficiency point a little left of Q_d)
   slip: true,
   lambdaC: 1.1, lambdaW: 0.25,
+  // Part-load recirculation: power at shut-off as a fraction of the design internal power,
+  // and the onset flow as a fraction of the shock-free flow (calibrated on the Ruhrpumpen sheet).
+  recirc: 0.32, recircOnset: 0.6,
   stages: 1, // identical stages in series (multistage pumps): head and power ×stages
 };
 
 /**
  * Pump fitted (bounded least squares on H and η) to the Ruhrpumpen test sheet in the
  * course notes (apunte 13, p. 48): guarantee point 240 m³/h, 101.3 m, 80.2 % at 1475 rpm.
- * It matches H within ≈ 6 % over the sheet and the guarantee point within 1 %; part-load
- * efficiency is higher than the sheet's because recirculation at low flow is not modelled.
+ * It matches H within ≈ 7 % over the sheet and the guarantee point within 1 %. The
+ * recirculation loss (32 % of the design internal power at shut-off, onset at 0.6 of the
+ * shock-free flow) is fitted to its shaft power: within 1.5 % at every flow, shut-off included.
+ * Part-load efficiency stays a little high because the model's head is (+7 % at 101 m³/h).
  */
 export const PRESETS = {
   didactica: { ...DEFAULT_SPEC },
@@ -42,15 +47,19 @@ export const PRESETS = {
     ...DEFAULT_SPEC, name: 'Ruhrpumpen (hoja de ensayo del apunte)',
     n: 1475, Qd: 0.0944, D2: 0.56, b2: 0.0142, beta2: 15.5, z: 7, t: 0.005,
     D1: 0.17, b1: 0.045, etaHd: 0.802, etaVd: 0.97, etaMd: 0.975, shockRatio: 3.46,
+    recirc: 0.32, recircOnset: 0.6,
   },
   // Fitted with fitPump() to TP 4 of the notes (lab test of a Grundfos CM5-2, 2 stages)
   // with the catalogue's best pump efficiency (≈ 50 %) to split motor and pump losses:
-  // head within 1.7 % rms, η within 1 point, electrical power within 3 % (motor: 127 W
+  // head within 1.7 % rms, η within 1.3 points, electrical power within 3.5 % (motor: 123 W
   // no-load + P_shaft / 0.80, see TP4_TEST.motor). β2, z and proportions are the didactic ones.
+  // Recirculation (12 % at shut-off, onset at the shock-free flow) fitted afterwards to the
+  // electrical power with the rest fixed; with only electrical power it trades off against
+  // the motor's no-load loss, so this split is the least certain part of the fit.
   tp4: {
     ...DEFAULT_SPEC, name: 'Grundfos CM5-2 (ensayo TP 4 del apunte, 2 etapas)',
     n: 2850, stages: 2, Qd: 4.3 / 3600, D2: 0.0718, b2: 0.00601, D1: 0.0292, b1: 0.0109, t: 0.0009,
-    etaHd: 0.868, shockRatio: 0.992, etaMd: 0.6,
+    etaHd: 0.868, shockRatio: 0.992, etaMd: 0.6, recirc: 0.12, recircOnset: 1,
   },
 };
 
@@ -98,6 +107,10 @@ export function buildPump(spec = {}) {
   const cLeak = qd / Math.sqrt(HtrD);
   const PtrD = RHO_REF * G * QiD * HtrD;
   const cMech = ((1 / s.etaMd - 1) * PtrD) / (s.n ** 3 * s.D2 ** 5);
+  // Below the onset flow the impeller recirculates at inlet and outlet: the eddies take
+  // power from the shaft and turn it into heat without adding head. Like disc friction it
+  // scales with ρ n³ D2⁵, and it grows as (1 − Qi/Q_rec)², zero above Q_rec.
+  const cRec = (s.recirc * PtrD) / (s.n ** 3 * s.D2 ** 5);
 
   /**
    * Pump state at delivered flow Q (m³/s), speed n (rpm), outer diameter D2 (m, trimming)
@@ -132,10 +145,12 @@ export function buildPump(spec = {}) {
     const Ptr = rho * G * Qi * Math.max(Htr, 0);
     const Pfl = rho * G * Q * Math.max(H, 0);
     const Pm = cMech * (rho / RHO_REF) * n ** 3 * D2 ** 5;
-    const Peje = Ptr + Pm;
+    const Qrec = s.recircOnset * Qshock;
+    const Prec = cRec * (rho / RHO_REF) * n ** 3 * D2 ** 5 * Math.max(0, 1 - Qi / Qrec) ** 2;
+    const Peje = Ptr + Pm + Prec;
     const etaH = Htr > 0 ? Math.max(H, 0) / Htr : 0;
     const etaV = Qi > 0 ? Q / Qi : 0;
-    const etaM = Peje > 0 ? Ptr / Peje : 0;
+    const etaM = Peje > 0 ? Ptr / Peje : 0; // mechanical, disc friction and recirculation
     const etaT = Peje > 0 ? Pfl / Peje : 0;
     // Degree of reaction of the rotor (apunte: σ = Hp/Ht): dynamic part (c2² − c1²)/2g.
     const reaction = Htr > 0 ? 1 - (c2 ** 2 - cm1 ** 2) / (2 * G * Htr) : 0;
@@ -144,13 +159,13 @@ export function buildPump(spec = {}) {
       Q, Qi, q, n, D2, H, Htr, HtInf, hf, hi, Qshock,
       U1, U2, cm1, w1, beta1Flow, incidence: beta1 - beta1Flow,
       cm2, c2u, c2uInf, c2, w2u, w2, alpha2: Math.atan2(cm2, c2u) / RAD,
-      NPSHr, Ptr, Pfl, Pm, Peje, etaH, etaV, etaM, etaT, reaction,
+      NPSHr, Ptr, Pfl, Pm, Prec, Qrec, Peje, etaH, etaV, etaM, etaT, reaction,
     };
   }
 
   // A multistage pump: the same flow through identical stages, heads and powers add up.
   // Velocities, angles and the ANPAr are those of one stage (the first one cavitates).
-  const SUMMED = ['H', 'Htr', 'HtInf', 'hf', 'hi', 'Ptr', 'Pfl', 'Pm', 'Peje'];
+  const SUMMED = ['H', 'Htr', 'HtInf', 'hf', 'hi', 'Ptr', 'Pfl', 'Pm', 'Prec', 'Peje'];
   function at(Q, opts) {
     const r = stage(Q, opts);
     if (s.stages > 1) for (const k of SUMMED) r[k] *= s.stages;
@@ -189,7 +204,7 @@ export function buildPump(spec = {}) {
   }
 
   return {
-    spec: s, sigma, beta1, kb1, kf, ki, cLeak, cMech, QiD,
+    spec: s, sigma, beta1, kb1, kf, ki, cLeak, cMech, cRec, QiD,
     at, qMax, curve, bep,
     shutoff: (opts) => at(0, opts),
   };

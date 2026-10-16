@@ -156,9 +156,11 @@ function drawTestSheet(sheet, tp, r) {
   const at = (Qh) => modelAt(pump, Qh, { ...r.optsA, electric, motor: sheet.motor });
   const f = (v, d = 1) => (Number.isFinite(v) ? v.toFixed(d) : '—');
   const dp = (m, t) => (t > 1e-9 ? `${m >= t ? '+' : '−'}${f(Math.abs(100 * (m - t) / t))} %` : '—');
+  const hasNPSH = tp.some((p) => Number.isFinite(p.NPSH));
   const rows = tp.map((p) => {
     const m = at(p.Q);
-    return `<tr><td>${f(p.Q, p.Q < 20 ? 2 : 0)}</td><td>${f(p.H)}</td><td>${f(m.H)}</td><td>${dp(m.H, p.H)}</td><td>${f(100 * p.eta)}</td><td>${f(100 * m.eta)}</td><td>${f(p.P, p.P < 5 ? 3 : 1)}</td><td>${f(m.P, m.P < 5 ? 3 : 1)}</td></tr>`;
+    const npsh = hasNPSH ? `<td>${f(p.NPSH, 2)}</td><td>${Number.isFinite(p.NPSH) ? f(m.NPSH, 2) : '—'}</td>` : '';
+    return `<tr><td>${f(p.Q, p.Q < 20 ? 2 : 0)}</td><td>${f(p.H)}</td><td>${f(m.H)}</td><td>${dp(m.H, p.H)}</td><td>${f(100 * p.eta)}</td><td>${f(100 * m.eta)}</td><td>${f(p.P, p.P < 5 ? 3 : 1)}</td><td>${f(m.P, m.P < 5 ? 3 : 1)}</td>${npsh}</tr>`;
   }).join('');
   const atHome = Math.abs(state.n - sheet.n) < 0.5 && Math.abs(r.D2 - sheet.D2) < 1e-4;
   const designSame = DESIGN_KEYS.every((k) => state[k] === stateFromPreset(state.preset)[k]);
@@ -173,13 +175,13 @@ function drawTestSheet(sheet, tp, r) {
     ? `<p class="note">Potencia <b>eléctrica</b> y η del <b>conjunto motor-bomba</b>. Modelo del motor: P_el = ${f(sheet.motor.P0 * 1000, 0)} W en vacío + P_eje / ${f(sheet.motor.eta, 2)}. ${Number.isFinite(sheet.etaPump) ? `El reparto entre motor y bomba sale del η máximo de la bomba sola del catálogo (${f(100 * sheet.etaPump, 0)} %).` : 'Con solo la potencia eléctrica no se pueden separar las pérdidas del motor de las de la bomba: si tenés el η de la bomba del catálogo, cargalo y el reparto mejora.'}</p>`
     : '';
   const stagesNote = (sheet.stages ?? 1) > 1 ? ` Bomba de ${sheet.stages} etapas: el modelo suma ${sheet.stages} rodetes iguales.` : '';
-  const fitNote = sheet.fit ? `<p class="note">Ajuste: H ${f(100 * sheet.fit.rms.H)} % rms (peor ${f(100 * sheet.fit.worstH)} %)${sheet.fit.rms.eta !== null ? `, η ${f(100 * sheet.fit.rms.eta)} puntos rms` : ''}${sheet.fit.rms.P !== null ? `, P ${f(100 * sheet.fit.rms.P)} % rms` : ''}. Se mantienen β2 = ${state.beta2}° y z = ${state.z} de la base; se ajustan D2, b2, Q de diseño y las pérdidas.</p>` : '';
+  const fitNote = sheet.fit ? `<p class="note">Ajuste: H ${f(100 * sheet.fit.rms.H)} % rms (peor ${f(100 * sheet.fit.worstH)} %)${sheet.fit.rms.eta !== null ? `, η ${f(100 * sheet.fit.rms.eta)} puntos rms` : ''}${sheet.fit.rms.P !== null ? `, P ${f(100 * sheet.fit.rms.P)} % rms` : ''}${sheet.fit.rms.NPSH !== null ? `, ANPAr ${f(100 * sheet.fit.rms.NPSH)} % rms (λc = ${f(pump.spec.lambdaC, 2)}, λw = ${f(pump.spec.lambdaW, 2)})` : ''}. Se mantienen β2 = ${state.beta2}° y z = ${state.z} de la base; se ajustan D2, b2, Q de diseño y las pérdidas${sheet.fit.rms.NPSH !== null ? ', y λc, λw de la ANPAr con los puntos de ANPA medidos' : ''}.</p>` : '';
   host.innerHTML = `
     <section class="card">
       <div class="card-head"><h3>Hoja de ensayo</h3><span class="note">${sheet.title} · ${sheet.source}</span></div>
       <p class="note">Puntos medidos (□ en las curvas) a ${sheet.n} rpm${sheet.nAssumed ? ' (supuesta)' : ''} y D2 ${f(sheet.D2 * 1000, 0)} mm${atHome ? '' : `, llevados con las leyes de afinidad a ${f(state.n, 0)} rpm y D2 ${f(r.D2 * 1000, 0)} mm`}.${stagesNote}${designSame ? '' : ' <b>Cambiaste el diseño del rodete: el ensayo es de la bomba original.</b>'}</p>
       <table class="data">
-        <tr><th>Q m³/h</th><th>H ensayo</th><th>H modelo</th><th>ΔH</th><th>η ensayo %</th><th>η modelo %</th><th>P ensayo kW</th><th>P modelo kW</th></tr>
+        <tr><th>Q m³/h</th><th>H ensayo</th><th>H modelo</th><th>ΔH</th><th>η ensayo %</th><th>η modelo %</th><th>P ensayo kW</th><th>P modelo kW</th>${hasNPSH ? '<th>ANPAr ensayo m</th><th>ANPAr modelo m</th>' : ''}</tr>
         ${rows}
       </table>
       ${motorNote}${fitNote}${guarantee}
@@ -202,7 +204,10 @@ function updateCurves(r) {
   // Test sheet points, moved with the affinity laws to the current speed and trim.
   const sheet = TEST_SHEETS[state.preset];
   const tp = sheet ? scaledTestPoints(sheet, state.n, r.D2) : null;
-  const testSeries = (f) => (tp ? [{ name: 'Ensayo', cls: 'test', points: true, pts: tp.map((p) => [p.Q, f(p)]) }] : []);
+  const testSeries = (f) => {
+    const pts = tp ? tp.map((p) => [p.Q, f(p)]).filter(([, y]) => Number.isFinite(y)) : [];
+    return pts.length ? [{ name: 'Ensayo', cls: 'test', points: true, pts }] : [];
+  };
   // A test with electrical power compares with the motor + pump set, not with the shaft.
   const elec = sheet?.power === 'electric';
   const setAt = (p) => modelAt(pump, p.Q * 3600, { ...r.optsA, electric: true, motor: sheet.motor });
@@ -232,7 +237,8 @@ function updateCurves(r) {
     },
     {
       key: 'P', title: `Potencia en el eje${per}`, unit: 'kW', digits: 1, vline: pumpX,
-      series: [{ name: 'P eje', cls: 's1', pts: single.map((p) => [p.Q * 3600, p.Peje / 1000]) }, ...setSeries('P eléctrica', (m) => m.P), ...testSeries((p) => p.P)],
+      series: [{ name: 'P eje', cls: 's1', pts: single.map((p) => [p.Q * 3600, p.Peje / 1000]) },
+        { name: 'P recirculación', cls: 's3 thin', dash: true, pts: single.map((p) => [p.Q * 3600, p.Prec / 1000]) }, ...setSeries('P eléctrica', (m) => m.P), ...testSeries((p) => p.P)],
       markers: r.pA ? [{ x: pumpX, y: r.pA.Peje / 1000, cls: 'op' }] : [],
     },
     {
@@ -240,6 +246,7 @@ function updateCurves(r) {
       series: [
         { name: 'ANPAd', cls: 's3', pts: single.map((p) => [p.Q * 3600, npshAvailable(r.sys, r.fluid, p.Q)]) },
         { name: 'ANPAr', cls: 's2', pts: single.map((p) => [p.Q * 3600, p.NPSHr]) },
+        ...testSeries((p) => p.NPSH),
       ],
       bands: Number.isFinite(r.onset) ? [{ x0: r.onset * 3600, x1: xMax, label: 'cavitación', cls: 'crit' }] : [],
       markers: r.pA ? [{ x: pumpX, y: r.npshr, cls: 'op' }] : [],
@@ -508,7 +515,7 @@ $('csvFit').addEventListener('click', () => {
     rebuildParams();
     update();
     const pct = (v) => (v === null ? '—' : `${(100 * v).toFixed(1)} %`);
-    msg.innerHTML = `${parsed.points.length} puntos, potencia ${kind === 'electric' ? 'eléctrica' : 'en el eje'}. Ajuste: H ${pct(fit.rms.H)} rms (peor ${pct(fit.worstH)}), η ${fit.rms.eta === null ? '—' : `${(100 * fit.rms.eta).toFixed(1)} puntos`}, P ${pct(fit.rms.P)}. Rodete: D2 ${(fit.spec.D2 * 1000).toFixed(0)} mm, b2 ${(fit.spec.b2 * 1000).toFixed(1)} mm, Q de diseño ${(fit.spec.Qd * 3600).toFixed(1)} m³/h.${parsed.warnings.length ? `<br>${parsed.warnings.join('<br>')}` : ''}`;
+    msg.innerHTML = `${parsed.points.length} puntos, potencia ${kind === 'electric' ? 'eléctrica' : 'en el eje'}. Ajuste: H ${pct(fit.rms.H)} rms (peor ${pct(fit.worstH)}), η ${fit.rms.eta === null ? '—' : `${(100 * fit.rms.eta).toFixed(1)} puntos`}, P ${pct(fit.rms.P)}${fit.rms.NPSH === null ? '' : `, ANPAr ${pct(fit.rms.NPSH)} (λc ${fit.spec.lambdaC.toFixed(2)}, λw ${fit.spec.lambdaW.toFixed(2)})`}. Rodete: D2 ${(fit.spec.D2 * 1000).toFixed(0)} mm, b2 ${(fit.spec.b2 * 1000).toFixed(1)} mm, Q de diseño ${(fit.spec.Qd * 3600).toFixed(1)} m³/h.${parsed.warnings.length ? `<br>${parsed.warnings.join('<br>')}` : ''}`;
   } catch (err) {
     msg.classList.add('err');
     msg.textContent = err.message;
