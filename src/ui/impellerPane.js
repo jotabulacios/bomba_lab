@@ -39,6 +39,25 @@ function triangle(title, { u, cu, cm, cuInf }, W) {
   </svg>`;
 }
 
+/**
+ * Rotation arrow concentric with the impeller, over the top, counter-clockwise on screen
+ * (backward-swept blades trail). The head is aligned with the arc's tangent at its tip.
+ */
+function rotationArrow(cx, cy, Ra) {
+  const at = (deg) => [cx + Ra * Math.cos(deg * RAD), cy - Ra * Math.sin(deg * RAD)];
+  const [x0, y0] = at(62);
+  const [x1, y1] = at(114); // the line stops under the head
+  const [tx, ty] = at(124);
+  // Screen direction of travel at the tip: d/dθ of (cos θ, −sin θ).
+  const dx = -Math.sin(121 * RAD);
+  const dy = -Math.cos(121 * RAD);
+  const bx = tx - 10 * dx;
+  const by = ty - 10 * dy;
+  const n = 4.5;
+  return `<path class="plan-rot" d="M${x0},${y0} A${Ra},${Ra} 0 0 0 ${x1},${y1}"/>
+    <path class="plan-rot-head" d="M${tx},${ty} L${bx - n * dy},${by + n * dx} L${bx + n * dy},${by - n * dx} Z"/>`;
+}
+
 /** Plan view of the impeller: z camber lines from r1 to r2 (β1 → β2). */
 function planView(g, beta1, W) {
   // Room above the impeller for the rotation arrow and below it for the two label lines.
@@ -64,9 +83,8 @@ function planView(g, beta1, W) {
     <circle class="plan-ring" cx="${cx}" cy="${cy}" r="${R}"/>
     <circle class="plan-ring" cx="${cx}" cy="${cy}" r="${R * r1}"/>
     ${blades}
-    <path class="plan-rot" d="M${cx + 34},${cy - R - 10} A${R + 14},${R + 14} 0 0 0 ${cx - 34},${cy - R - 10}"/>
-    <path class="plan-rot-head" d="M${cx - 34},${cy - R - 10} l9,-5 l-1,10 z"/>
-    <text class="plan-txt" x="${cx}" y="${cy - R - 18}" text-anchor="middle">giro</text>
+    ${rotationArrow(cx, cy, R + 12)}
+    <text class="plan-txt" x="${cx}" y="${cy - R - 20}" text-anchor="middle">giro</text>
     <text class="plan-txt" x="6" y="${H - 20}">D1 = ${(g.D1 * 1000).toFixed(0)} mm · β1 = ${beta1.toFixed(1)}°</text>
     <text class="plan-txt" x="6" y="${H - 6}">D2 = ${(g.D2 * 1000).toFixed(0)} mm · β2 = ${g.beta2.toFixed(0)}° · z = ${g.z}</text>
   </svg>`;
