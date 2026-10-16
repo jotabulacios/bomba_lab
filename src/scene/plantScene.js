@@ -13,6 +13,7 @@ import { lineList, velocity } from '../physics/piping.js';
 
 const Y = (z) => 3 * Math.asinh(z / 3); // display height of an elevation z (m)
 const PIPE_R = 0.16;
+const EYE_FACE = 0.42; // pump axis → face of the pipe's mating flange at the suction
 const SUCT_X = -4.6; // suction tank centre
 const DISCH_X = 6.4; // discharge tank centre
 
@@ -233,7 +234,7 @@ export class PlantScene {
     const xValve = 3.2;
     const paths = [];
     const path = (pts, flow, from, to) => paths.push({ ...polyline(pts), flow, from, to });
-    const eye = (p) => V(p.x - 0.75, 0, p.z);
+    const eye = (p) => V(p.x - EYE_FACE, 0, p.z); // the suction pipe ends on the pump's flange
     const top = (p) => V(p.x + 0.0, 0.85, p.z);
     if (d.mode === 'single') {
       path([sIn, V(xHeader, sIn.y, 0), V(xHeader, 0, 0), eye(pumps[0])], 'main', 'tank1', 'suction');
@@ -368,6 +369,11 @@ export class PlantScene {
     eyeFlange.rotation.z = Math.PI / 2;
     eyeFlange.position.set(-0.3, 0, 0);
     g.add(eyeFlange);
+    // The suction pipe's mating flange, bolted to the pump's: the pipe ends on its face.
+    const pipeFlange = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, EYE_FACE - 0.36, 24), this.mat.flange);
+    pipeFlange.rotation.z = Math.PI / 2;
+    pipeFlange.position.set(-(EYE_FACE + 0.36) / 2, 0, 0);
+    g.add(pipeFlange);
     // Bearing frame, coupling (striped so the rotation is visible) and motor.
     const frame = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.55, 20), this.mat.flange);
     frame.rotation.z = Math.PI / 2;
