@@ -30,6 +30,8 @@
       <symbol id="i-cut" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v16" stroke-dasharray="2 2"/></symbol>
       <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.3-5.6"/><path d="M4 4v5h5"/></symbol>
       <symbol id="i-plant" viewBox="0 0 24 24"><rect x="2" y="13" width="5" height="7" rx="1"/><rect x="17" y="3" width="5" height="6" rx="1"/><path d="M7 17h4v-9h8"/><circle cx="11" cy="17" r="2"/></symbol>
+      <symbol id="i-pump" viewBox="0 0 24 24"><circle cx="10" cy="13" r="6"/><path d="M14 8V3h4v6"/><circle cx="10" cy="13" r="1.5"/></symbol>
+      <symbol id="i-ruler" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M4 12h16M4 10v4M20 10v4"/></symbol>
       <symbol id="i-frame" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 12l5-5M12 12l-3 6"/><circle cx="12" cy="12" r="1.5"/></symbol>
     </defs>
   </svg>
@@ -71,7 +73,9 @@
       <div id="canvasHost"></div>
       <div class="chip" id="infoChip" hidden></div>
       <nav class="toolbar" aria-label="Herramientas">
-        <button class="tool toggle" id="viewBtn" title="Ver la bomba por dentro (V)" aria-label="Alternar instalación / bomba" aria-pressed="false"><svg><use href="#i-plant"/></svg></button>
+        <button class="tool" data-view="plant" title="Instalación (V)" aria-label="Vista instalación"><svg><use href="#i-plant"/></svg></button>
+        <button class="tool" data-view="pump" title="La bomba por dentro (V)" aria-label="Vista bomba"><svg><use href="#i-pump"/></svg></button>
+        <button class="tool" data-view="design" title="Diseño: la bomba sola a escala (D)" aria-label="Vista diseño"><svg><use href="#i-ruler"/></svg></button>
         <span class="sep"></span>
         <button class="tool toggle on" id="cutBtn" title="Corte de la carcasa (X)" aria-label="Corte" aria-pressed="true"><svg><use href="#i-cut"/></svg></button>
         <button class="tool toggle on" id="flowBtn" title="Mostrar flujo (F)" aria-label="Mostrar flujo" aria-pressed="true"><svg><use href="#i-flow"/></svg></button>
@@ -80,6 +84,13 @@
         <button class="tool" id="resetBtn" title="Restablecer cámara (R)" aria-label="Restablecer cámara"><svg><use href="#i-reset"/></svg></button>
       </nav>
       <div class="legend" id="legend3d"></div>
+      <div class="design-ctl hidden" id="designCtl">
+        <div class="seg small" role="group" aria-label="Cámara">
+          <button data-dcam="front">Frente</button><button data-dcam="side">Costado</button><button data-dcam="iso" class="active">3D</button>
+        </div>
+        <label class="check"><input type="checkbox" id="dzVolute" checked> Voluta</label>
+        <label class="check"><input type="checkbox" id="dzGhost" checked> Referencia</label>
+      </div>
       <div class="seg pump-picker hidden" id="pumpPicker" role="group" aria-label="Bomba a mostrar">
         <button data-pump="0" class="active">Bomba 1</button>
         <button data-pump="1">Bomba 2</button>
@@ -93,6 +104,7 @@
         <button role="tab" class="tab active" data-tab="curves" aria-selected="true">Curvas</button>
         <button role="tab" class="tab" data-tab="impeller" aria-selected="false">Rodete</button>
         <button role="tab" class="tab" data-tab="similarity" aria-selected="false">Semejanza</button>
+        <button role="tab" class="tab" data-tab="design" aria-selected="false">Diseño</button>
       </div>
       <div class="panel-body" data-pane="curves">
         <div class="card-head top">
@@ -108,6 +120,9 @@
       <div class="panel-body hidden" data-pane="similarity">
         <div id="similarityPane"></div>
       </div>
+      <div class="panel-body hidden" data-pane="design">
+        <div id="designPane"></div>
+      </div>
     </aside>
   </div>
 
@@ -116,7 +131,8 @@
       <div class="dialog-head"><h2>Bomba Lab</h2><button class="icon-btn small" aria-label="Cerrar">×</button></div>
       <p class="note">Mové los parámetros de la izquierda: el punto de funcionamiento es donde la curva de la bomba corta la del sistema. Cuando la ANPA disponible cae por debajo de la requerida, la bomba cavita.</p>
       <dl class="shortcuts">
-        <div><dt><kbd>1</kbd>–<kbd>3</kbd></dt><dd>Pestañas: curvas, rodete, semejanza</dd></div>
+        <div><dt><kbd>1</kbd>–<kbd>4</kbd></dt><dd>Pestañas: curvas, rodete, semejanza, diseño</dd></div>
+        <div><dt><kbd>D</kbd></dt><dd>Vista diseño: la bomba sola a escala, contra una referencia</dd></div>
         <div><dt><kbd>V</kbd></dt><dd>Instalación / bomba por dentro (o clic en una bomba)</dd></div>
         <div><dt><kbd>F</kbd></dt><dd>Mostrar u ocultar el flujo</dd></div>
         <div><dt><kbd>C</kbd></dt><dd>Marco absoluto / relativo al rodete</dd></div>

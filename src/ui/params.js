@@ -54,7 +54,7 @@ export const PARAM_GROUPS = [
   },
 ];
 
-export function buildParams(host, state, onChange) {
+export function buildParams(host, state, onChange, onHover = () => {}) {
   host.innerHTML = '';
   const outputs = {};
   const derived = [];
@@ -89,6 +89,8 @@ export function buildParams(host, state, onChange) {
         });
       }
       if (p.derived) derived.push([row.querySelector('.derived'), p.derived]);
+      row.addEventListener('pointerenter', () => { row.classList.add('hover'); onHover(p.key); });
+      row.addEventListener('pointerleave', () => { row.classList.remove('hover'); onHover(null); });
       sec.appendChild(row);
     }
     host.appendChild(sec);

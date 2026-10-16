@@ -28,11 +28,12 @@ make test       # tests del modelo físico (node --test)
 | Barra superior | Punto de funcionamiento: Q, H, ηT, P eje, ANPAd, ANPAr, τ de Thoma, ns y estado de la ANPA (sin cavitación, margen bajo o cavita). |
 | Pestaña **Curvas** | H–Q con la curva del sistema y el punto de funcionamiento; ηT–Q con el BEP; P–Q; ANPAd y ANPAr contra Q con la zona de cavitación. Comparten el eje Q y un cursor común, y tienen vista de tabla. |
 | Pestaña **Rodete** | Triángulos de entrada y salida (c, w, u; c2 con y sin resbalamiento), incidencia, rodete en planta, efecto de β2 sobre H_t∞ y el grado de reacción, y los rendimientos ηh, ηv y ηm. |
+| Pestaña y vista **Diseño** | La bomba sola **a escala real**: rodete y voluta (la garganta se dimensiona con Q_d), con la referencia como fantasma translúcido y las cotas D1, D2, b2, β2 y z. Al pasar el mouse por un parámetro de diseño se resalta su cota. La pestaña muestra la sección meridional, las curvas H–Q y η–Q actual contra referencia, una tabla de cambios (H a caudal cero, BEP, P, ANPAr, ns, σ, D2/D1) y notas que explican cada cambio. Botones para fijar la referencia y para volver a ella. |
 | Pestaña **Semejanza** | ns, nq y Ns; Φ y Ψ; tabla de tipos de rodete (apunte 13, p. 17); comparación entre las leyes de afinidad y el modelo al cambiar n o recortar D2. |
 | Visor 3D, **Instalación** (por defecto) | Tanque de aspiración (la bomba en carga o aspirando según Hs, con su cota), bomba sobre su base, cañería con válvula de volante y tanque elevado a H_geo (escala vertical comprimida). Funciona con una bomba, dos en serie o dos en paralelo con colectores; si una bomba no aporta, se ve apagada. Las partículas avanzan con el caudal de cada rama y se colorean por presión manométrica (vacío ↔ presión). Hay manómetros en vivo, y la bomba que cavita se pone en rojo. Clic en una bomba para verla por dentro. |
 | Visor 3D, **Bomba** | Voluta de sección circular creciente con lengua y descarga vertical, rodete cerrado con álabes curvados, soporte de cojinetes, acople, motor y base. El **corte** abre media carcasa con un plano de corte. Las partículas siguen el flujo en el marco absoluto (c) o en el del rodete (w); en este último solo se dibuja el flujo en los canales y la carcasa queda fija. Cuando cavita aparecen burbujas en el borde de ataque. En serie o paralelo, un selector elige la bomba 1 o la 2. |
 
-Atajos: `1`–`3` pestañas · `V` instalación/bomba · `F` flujo · `C` marco · `X` corte · `R` cámara · `P` parámetros · `T` tema · `?` ayuda.
+Atajos: `1`–`4` pestañas · `D` diseño · `V` instalación/bomba · `F` flujo · `C` marco · `X` corte · `R` cámara · `P` parámetros · `T` tema · `?` ayuda.
 
 ## Ejemplos (entradas → salidas esperadas)
 
@@ -53,6 +54,8 @@ index.html ── src/main.js ─┬─ physics/fluid.js       agua (ρ, pv por 
                            ├─ physics/similarity.js  afinidad, ns / nq / Ns, Φ, Ψ, tipo de rodete
                            ├─ scene/plantScene.js    instalación: tanques, cañerías, válvula, serie/paralelo, manómetros
                            ├─ scene/pumpScene.js     bomba por dentro: rodete, voluta, motor, corte, flujo, burbujas
+                           ├─ scene/designScene.js   diseño a escala real, fantasma de referencia, cotas
+                           ├─ scene/pumpGeometry.js  geometría compartida: álabes, tapa, voluta
                            └─ ui/                    curvas, pestañas Rodete y Semejanza, parámetros, chrome
 ```
 
@@ -84,6 +87,7 @@ parámetros ─▶ buildPump(spec) (calibración en el punto de diseño, solo si
   - H_sist = H_geo + (K_cañería + K_válvula)·Q², con K_válvula ∝ 1/apertura².
   - El punto de funcionamiento se busca por bisección.
   - Serie: alturas sumadas a igual Q. Paralelo: caudales sumados a igual H; una bomba más débil no aporta por encima de su altura a caudal cero.
+- **Voluta:** la garganta se dimensiona con vórtice libre para el caudal de diseño: Q = c2u·R2·A/R_c (`voluteThroat`).
 - **3D:**
   - **Álabes:** curvatura dθ/dr = −1/(r·tan β) con β de β1 a β2.
   - **Flujo:** de línea media. Axial en la aspiración; siguiendo el canal en el marco del rodete; vórtice libre (cu ∝ 1/r) en la voluta; recto en la tobera.

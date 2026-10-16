@@ -1,5 +1,5 @@
 import { fluidState, G } from './physics/fluid.js';
-import { buildPump, PRESETS } from './physics/pump.js';
+import { buildPump, PRESETS, voluteThroat } from './physics/pump.js';
 import { operatingPoint, npshAvailable, cavitationOnset, npshStatus, systemHead, pressureProfile } from './physics/system.js';
 import { series, parallel } from './physics/combine.js';
 import { specificSpeeds, impellerType } from './physics/similarity.js';
@@ -10,6 +10,8 @@ import { drawSimilarityPane } from './ui/similarityPane.js';
 import { setupChrome, token } from './ui/chrome.js';
 import { PumpScene } from './scene/pumpScene.js';
 import { PlantScene } from './scene/plantScene.js';
+import { DesignScene } from './scene/designScene.js';
+import { drawDesignPane } from './ui/designPane.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -200,7 +202,31 @@ function updateCurves(r) {
 // ---------- 3D ----------
 const scene3d = new PumpScene($('canvasHost'));
 const plant = new PlantScene(scene3d.renderer, $('canvasHost'));
-let view = 'plant'; // 'plant' | 'pump'
+const design = new DesignScene(scene3d.renderer, $('canvasHost'));
+let view = 'plant'; // 'plant' | 'pump' | 'design'
+
+// Reference design for the "Diseño" view (design inputs only).
+const DESIGN_KEYS = ['beta2', 'z', 'D2mm', 'b2mm', 'D1mm', 'Qdh', 'etaHd', 'slip'];
+const snapshot = () => Object.fromEntries(DESIGN_KEYS.map((k) => [k, state[k]]));
+let refDesign = snapshot();
+let refPump = null;
+let refKey = '';
+function referencePump() {
+  const spec = specFromState({ ...state, ...refDesign });
+  const key = JSON.stringify(spec);
+  if (key !== refKey) { refPump = buildPump(spec); refKey = key; }
+  return refPump;
+}
+function designGeom(p, s, D2) {
+  return { D2, D1: s.D1, b1: s.b1, b2: s.b2, beta1: p.beta1, beta2: s.beta2, z: s.z, t: s.t, Qd: s.Qd, throat: voluteThroat(p), pump: p };
+}
+function designData(r) {
+  const rp = referencePump();
+  const cur = { ...designGeom(pump, r.spec, r.D2), opts: r.optsA };
+  const rs = rp.spec;
+  const ref = { ...designGeom(rp, rs, rs.D2 * (state.trim / 100)), opts: { ...r.optsA, D2: rs.D2 * (state.trim / 100) } };
+  return { cur, ref };
+}
 let shownPump = 0; // which pump the detail view shows (series / parallel)
 
 function update3d(r) {
@@ -230,23 +256,31 @@ function update3d(r) {
     pipeArea: (s.Qd / 2.5),
   });
 
+  if (view === 'design') {
+    const { cur, ref } = designData(r);
+    design.setDesign(cur, $('dzGhost').checked ? ref : null);
+  }
   const frameTxt = scene3d.frame === 'abs' ? 'marco absoluto: el rodete gira y el flujo sigue c' : 'marco del rodete: el rodete quieto y el flujo sigue w';
   $('legend3d').innerHTML = view === 'plant'
     ? '<span class="pleg"><i class="pv"></i>vacío <i class="p0"></i>0 <i class="pp"></i>presión · color de las partículas = presión manométrica · clic en una bomba para verla por dentro</span>'
-    : `<span>Cámara lenta 1 : ${Math.round(1 / ts)} · ${frameTxt}${two ? ` · bomba ${shownPump + 1}` : ''}</span>`;
+    : view === 'design'
+      ? '<span>A escala real · gris translúcido = referencia · pasá el mouse por un parámetro de diseño para ver su cota</span>'
+      : `<span>Cámara lenta 1 : ${Math.round(1 / ts)} · ${frameTxt}${two ? ` · bomba ${shownPump + 1}` : ''}</span>`;
   $('pumpPicker').classList.toggle('hidden', view !== 'pump' || !two);
   document.querySelectorAll('[data-pump]').forEach((b) => b.classList.toggle('active', Number(b.dataset.pump) === shownPump));
 }
 
 function setView(v) {
   view = v;
-  $('viewBtn').classList.toggle('on', v === 'pump');
-  $('viewBtn').setAttribute('aria-pressed', String(v === 'pump'));
-  $('viewBtn').title = v === 'plant' ? 'Ver la bomba por dentro (V)' : 'Ver la instalación (V)';
+  document.querySelectorAll('.toolbar [data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
   plant.controls.enabled = v === 'plant';
   scene3d.controls.enabled = v === 'pump';
+  design.controls.enabled = v === 'design';
   plant.setLabelsVisible(v === 'plant');
-  for (const id of ['cutBtn', 'frameBtn']) $(id).classList.toggle('hidden', v === 'plant');
+  design.setLabelsVisible(v === 'design');
+  for (const id of ['cutBtn', 'frameBtn']) $(id).classList.toggle('hidden', v !== 'pump');
+  $('flowBtn').classList.toggle('hidden', v === 'design');
+  $('designCtl').classList.toggle('hidden', v !== 'design');
   if (result) update3d(result);
 }
 
@@ -276,10 +310,19 @@ const tools = {
   cut: () => toggleTool('cutBtn', (on) => scene3d.setCut(on)),
   flow: () => toggleTool('flowBtn', (on) => { scene3d.setFlowVisible(on); plant.showFlow = on; }),
   frame: () => toggleTool('frameBtn', (on) => { scene3d.setFrame(on ? 'rel' : 'abs'); if (result) update3d(result); }),
-  reset: () => (view === 'plant' ? plant.frame() : scene3d.resetCamera()),
+  reset: () => (view === 'plant' ? plant.frame() : view === 'design' ? design.setCamera('iso') : scene3d.resetCamera()),
   view: () => setView(view === 'plant' ? 'pump' : 'plant'),
 };
-$('viewBtn').addEventListener('click', tools.view);
+document.querySelectorAll('.toolbar [data-view]').forEach((b) => b.addEventListener('click', () => {
+  setView(b.dataset.view);
+  if (b.dataset.view === 'design') chrome.setTab('design');
+}));
+document.querySelectorAll('[data-dcam]').forEach((b) => b.addEventListener('click', () => {
+  design.setCamera(b.dataset.dcam);
+  document.querySelectorAll('[data-dcam]').forEach((x) => x.classList.toggle('active', x === b));
+}));
+$('dzVolute').addEventListener('change', (e) => { design.setVolute(e.target.checked); });
+$('dzGhost').addEventListener('change', () => { if (result) update3d(result); });
 document.querySelectorAll('[data-pump]').forEach((b) => b.addEventListener('click', () => { shownPump = Number(b.dataset.pump); if (result) update3d(result); }));
 $('cutBtn').addEventListener('click', tools.cut);
 $('flowBtn').addEventListener('click', tools.flow);
@@ -287,7 +330,9 @@ $('frameBtn').addEventListener('click', tools.frame);
 $('resetBtn').addEventListener('click', tools.reset);
 
 // ---------- Wiring ----------
-const params = buildParams($('params'), state, onParam);
+const DIM_FOR = { D2mm: 'D2mm', trim: 'D2mm', D1mm: 'D1mm', b2mm: 'b2mm', beta2: 'beta2', z: 'z' };
+const onHover = (k) => design.highlight(k ? DIM_FOR[k] ?? null : null);
+const params = buildParams($('params'), state, onParam, onHover);
 function onParam(k, v) {
   state[k] = v;
   update();
@@ -296,11 +341,13 @@ function onParam(k, v) {
 $('preset').innerHTML = Object.entries(PRESETS).map(([k, s]) => `<option value="${k}">${s.name}</option>`).join('');
 $('preset').addEventListener('change', (e) => {
   Object.assign(state, stateFromPreset(e.target.value));
+  refDesign = snapshot();
+  design.fitted = false;
   rebuildParams();
   update();
 });
 function rebuildParams() {
-  Object.assign(paramsRef, buildParams($('params'), state, onParam));
+  Object.assign(paramsRef, buildParams($('params'), state, onParam, onHover));
 }
 const paramsRef = params;
 
@@ -321,11 +368,13 @@ let activeTab = 'curves';
 const chrome = setupChrome({
   onTheme: () => { scene3d.setBackground(token('--stage-bg')); update(); },
   onResize: () => onResize(),
-  onTab: (t) => { activeTab = t; if (result) renderPanes(result); },
+  onTab: (t) => { activeTab = t; if (t === 'design' && view !== 'design') setView('design'); if (result) renderPanes(result); },
   shortcuts: {
     1: () => chrome.setTab('curves'),
     2: () => chrome.setTab('impeller'),
     3: () => chrome.setTab('similarity'),
+    4: () => chrome.setTab('design'),
+    d: () => { setView('design'); chrome.setTab('design'); },
     p: toggleParams,
     x: tools.cut,
     f: tools.flow,
@@ -338,7 +387,14 @@ const chrome = setupChrome({
 function renderPanes(r) {
   if (activeTab === 'curves') updateCurves(r);
   else if (activeTab === 'impeller') drawImpellerPane($('impellerPane'), r, pump);
-  else drawSimilarityPane($('similarityPane'), r, pump, state);
+  else if (activeTab === 'similarity') drawSimilarityPane($('similarityPane'), r, pump, state);
+  else {
+    const { cur, ref } = designData(r);
+    drawDesignPane($('designPane'), cur, ref, {
+      setRef: () => { refDesign = snapshot(); update(); },
+      revert: () => { Object.assign(state, refDesign); rebuildParams(); update(); },
+    });
+  }
 }
 
 function update() {
@@ -358,7 +414,7 @@ new ResizeObserver(onResize).observe($('rightPanel'));
 function resize3d() {
   scene3d.resize();
   const host = $('canvasHost');
-  if (host.clientWidth && host.clientHeight) plant.resize(host.clientWidth, host.clientHeight);
+  if (host.clientWidth && host.clientHeight) { plant.resize(host.clientWidth, host.clientHeight); design.resize(host.clientWidth, host.clientHeight); }
 }
 new ResizeObserver(resize3d).observe($('viewport'));
 
@@ -371,6 +427,6 @@ function loop(now) {
   requestAnimationFrame(loop);
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
-  if (view === 'plant') { plant.update(dt); plant.render(); } else { scene3d.update(dt); scene3d.render(); }
+  if (view === 'plant') { plant.update(dt); plant.render(); } else if (view === 'design') design.render(); else { scene3d.update(dt); scene3d.render(); }
 }
 requestAnimationFrame(loop);
