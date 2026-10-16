@@ -26,6 +26,30 @@ export const RUHRPUMPEN_TEST = {
 };
 
 /**
+ * TP 4 of the course notes (apunte 13, p. 49): laboratory test of the course pump, a
+ * Grundfos CM5-2 (two stages, 1×230 V, 50 Hz) according to the TP guide. Values read
+ * from the plotted points (300 dpi), so ±2 % or so. Power is the electrical input
+ * Ne = U·I·cos φ and η is that of motor + pump. The speed is not on the sheet: 2850 rpm,
+ * the usual speed of a two-pole 50 Hz motor under load, is assumed.
+ */
+const LPM = 0.06; // m³/h per l/min
+export const TP4_TEST = {
+  title: 'TP 4 Ensayo de bomba centrífuga (Grundfos CM5-2, 2 etapas)',
+  source: 'apunte 13, p. 49 (leído del gráfico)',
+  n: 2850,
+  stages: 2,
+  D2: 0.0718, // from the fit (PRESETS.tp4)
+  power: 'electric',
+  etaPump: 0.5, // best η of the pump alone, Grundfos catalogue curve in the TP guide (≈ 50 %)
+  motor: { eta: 0.8, P0: 0.1265 }, // fitted: η of the motor and its no-load loss (kW)
+  points: [
+    [0, 18.0, 308, 0], [13.9, 17.05, 358, 0.110], [30.0, 16.0, 411, 0.192], [41.0, 15.45, 435, 0.239],
+    [52.2, 14.9, 446, 0.284], [61.3, 14.1, 465, 0.305], [68.5, 13.55, 482, 0.314], [75.5, 12.7, 501, 0.312],
+    [81.6, 11.95, 529, 0.302], [85.5, 11.1, 546, 0.284], [88.6, 10.7, 550, 0.279],
+  ].map(([q, H, W, eta]) => ({ Q: q * LPM, H, P: W / 1000, eta })),
+};
+
+/**
  * Test points scaled by the affinity laws to speed n and impeller diameter D2 (trim);
  * efficiency is kept (homologous points).
  */

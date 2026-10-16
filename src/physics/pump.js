@@ -27,6 +27,7 @@ export const DEFAULT_SPEC = {
   shockRatio: 3.0, // k_i / k_f (puts the best-efficiency point a little left of Q_d)
   slip: true,
   lambdaC: 1.1, lambdaW: 0.25,
+  stages: 1, // identical stages in series (multistage pumps): head and power ×stages
 };
 
 /**
@@ -41,6 +42,15 @@ export const PRESETS = {
     ...DEFAULT_SPEC, name: 'Ruhrpumpen (hoja de ensayo del apunte)',
     n: 1475, Qd: 0.0944, D2: 0.56, b2: 0.0142, beta2: 15.5, z: 7, t: 0.005,
     D1: 0.17, b1: 0.045, etaHd: 0.802, etaVd: 0.97, etaMd: 0.975, shockRatio: 3.46,
+  },
+  // Fitted with fitPump() to TP 4 of the notes (lab test of a Grundfos CM5-2, 2 stages)
+  // with the catalogue's best pump efficiency (≈ 50 %) to split motor and pump losses:
+  // head within 1.7 % rms, η within 1 point, electrical power within 3 % (motor: 127 W
+  // no-load + P_shaft / 0.80, see TP4_TEST.motor). β2, z and proportions are the didactic ones.
+  tp4: {
+    ...DEFAULT_SPEC, name: 'Grundfos CM5-2 (ensayo TP 4 del apunte, 2 etapas)',
+    n: 2850, stages: 2, Qd: 4.3 / 3600, D2: 0.0718, b2: 0.00601, D1: 0.0292, b1: 0.0109, t: 0.0009,
+    etaHd: 0.868, shockRatio: 0.992, etaMd: 0.6,
   },
 };
 
@@ -93,7 +103,7 @@ export function buildPump(spec = {}) {
    * Pump state at delivered flow Q (m³/s), speed n (rpm), outer diameter D2 (m, trimming)
    * and liquid density rho. Heads in m, powers in W, velocities in m/s, angles in degrees.
    */
-  function at(Q, { n = s.n, D2 = s.D2, rho = RHO_REF } = {}) {
+  function stage(Q, { n = s.n, D2 = s.D2, rho = RHO_REF } = {}) {
     const U1 = (Math.PI * s.D1 * n) / 60;
     const U2 = (Math.PI * D2 * n) / 60;
     const Qshock = QiD * (n / s.n); // same inlet geometry: shock-free flow ∝ n
@@ -136,6 +146,15 @@ export function buildPump(spec = {}) {
       cm2, c2u, c2uInf, c2, w2u, w2, alpha2: Math.atan2(cm2, c2u) / RAD,
       NPSHr, Ptr, Pfl, Pm, Peje, etaH, etaV, etaM, etaT, reaction,
     };
+  }
+
+  // A multistage pump: the same flow through identical stages, heads and powers add up.
+  // Velocities, angles and the ANPAr are those of one stage (the first one cavitates).
+  const SUMMED = ['H', 'Htr', 'HtInf', 'hf', 'hi', 'Ptr', 'Pfl', 'Pm', 'Peje'];
+  function at(Q, opts) {
+    const r = stage(Q, opts);
+    if (s.stages > 1) for (const k of SUMMED) r[k] *= s.stages;
+    return r;
   }
 
   /** Delivered flow where the real head falls to zero (end of the curve). */
