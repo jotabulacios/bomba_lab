@@ -8,6 +8,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+import { applyPlanStyle, flatMaterial, levelMark, instrumentBubble, tag, flowArrow, setOrthographic, resizeOrtho, INK, INK_BLUEPRINT } from './drawingStyle.js';
+import { lineList, velocity } from '../physics/piping.js';
 
 const Y = (z) => 3 * Math.asinh(z / 3); // display height of an elevation z (m)
 const PIPE_R = 0.16;
@@ -101,6 +103,7 @@ export class PlantScene {
     this.particles = new THREE.InstancedMesh(new THREE.SphereGeometry(0.055, 8, 6), new THREE.MeshBasicMaterial(), N);
     this.particles.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(N * 3), 3);
     this.particles.frustumCulled = false;
+    this.particles.userData.noPlan = true;
     this.world.add(this.particles);
     this.pp = Array.from({ length: N }, () => ({ path: 0, s: Math.random(), off: new THREE.Vector3() }));
     this.rot = [0, 0];
@@ -114,11 +117,13 @@ export class PlantScene {
    *            profile: pressureProfile() points, rho, pipeArea }
    */
   setState(d) {
-    const key = JSON.stringify([d.mode, d.Hs.toFixed(2), d.Hgeo.toFixed(1)]);
+    const key = JSON.stringify([d.mode, d.Hs.toFixed(2), d.Hgeo.toFixed(1), (d.Qd * 3600).toFixed(0)]);
     if (key !== this.layoutKey) {
       this.layoutKey = key;
       this.mode = d.mode;
       this.build(d);
+      this.buildDrawing(d);
+      this.setPlanStyle(this.plan ?? false, this.dark ?? false);
       this.frame();
     }
     this.d = d;
@@ -135,7 +140,13 @@ export class PlantScene {
     // Pumps: colour by state, labels.
     this.pumpObjects.forEach((po, i) => {
       const s = d.pumps[i];
-      po.casing.material = !s.active ? this.mat.off : s.cavitates ? this.mat.cav : this.mat.casing;
+      const m = !s.active ? this.mat.off : s.cavitates ? this.mat.cav : this.mat.casing;
+      if (this.plan) {
+        // Drawing style: keep the flat fill, tint it by state (off grey, cavitating red).
+        po.casing.userData.matOrig = m;
+        const fill = this.dark ? (!s.active ? 0x33465c : s.cavitates ? 0x6b2a2a : 0x1e3a5c) : (!s.active ? 0xd5d9de : s.cavitates ? 0xf6c9c9 : 0xeef0f2);
+        po.casing.material = flatMaterial(fill);
+      } else po.casing.material = m;
       po.label.element.innerHTML = s.active
         ? `<b>Bomba ${i + 1}${s.cavitates ? ' · <span class="cav">cavita</span>' : ''}</b>${(s.Q * 3600).toFixed(0)} m³/h · ${s.H.toFixed(1)} m · ${s.n.toFixed(0)} rpm`
         : `<b>Bomba ${i + 1} · sin aporte</b>su altura a Q = 0 no llega a la del colector`;
@@ -147,13 +158,28 @@ export class PlantScene {
       g.label.element.innerHTML = `${g.name}<b>${kPa >= 0 ? '' : '−'}${Math.abs(kPa).toFixed(0)} kPa</b><span>${p.toFixed(1)} m</span>`;
       g.label.element.classList.toggle('vac', p < 0);
     }
+    for (const b of this.bubbles ?? []) {
+      const p = P[b.key];
+      const kPa = (p * d.rho * 9.80665) / 1000;
+      b.obj.element.querySelector('.val').textContent = `${kPa.toFixed(0)} kPa`;
+      b.obj.element.classList.toggle('vac', p < 0);
+    }
+    this.eqTags?.forEach((t, i) => {
+      const s = d.pumps[i];
+      if (!s) return;
+      t.element.innerHTML = `<b>P-101${String.fromCharCode(65 + i)}</b>${s.active ? `${(s.Q * 3600).toFixed(0)} m³/h · ${s.H.toFixed(1)} m · ${s.n.toFixed(0)} rpm` : 'sin aporte'}${s.cavitates ? ' · <span class="cav">CAVITA</span>' : ''}`;
+    });
+    for (const lt of this.lineTags ?? []) {
+      const Q = { main: d.Q, A: QA, B: QB }[lt.flow];
+      lt.obj.element.innerHTML = `<b>${lt.line.tag}</b>DN${lt.line.dn} · ${velocity(Q, lt.line.di).toFixed(2)} m/s`;
+    }
     this.valveWheel.rotation.z = d.valve * Math.PI * 3;
     this.valveGate.scale.y = Math.max(0.05, 1 - d.valve);
     this.valveLabel.element.innerHTML = `Válvula <b>${(d.valve * 100).toFixed(0)} %</b>`;
   }
 
   build(d) {
-    this.parts.traverse((o) => o.geometry?.dispose?.());
+    this.parts.traverse((o) => { o.geometry?.dispose?.(); if (o.isCSS2DObject) o.element.remove(); });
     this.parts.clear();
     for (const el of this.host.querySelectorAll('.plant-label')) el.remove();
     const add = (o) => { this.parts.add(o); return o; };
@@ -163,6 +189,7 @@ export class PlantScene {
 
     // Ground.
     const ground = add(new THREE.Mesh(new THREE.PlaneGeometry(40, 18), this.mat.ground));
+    this.ground = ground;
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(1, yGround, 0);
 
@@ -170,11 +197,16 @@ export class PlantScene {
     const tank = (cx, level, bottom) => {
       const h = Math.max(level - bottom + 0.8, 1.5);
       const box = add(new THREE.Mesh(new THREE.BoxGeometry(3, h, 3), this.mat.tank));
+      box.userData.planOpacity = 0.35;
       box.position.set(cx, bottom + h / 2, 0);
       const edges = add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(3, h, 3)), this.mat.tankEdge));
       edges.position.copy(box.position);
+      edges.userData.mode3d = true;
       const wh = Math.max(level - bottom, 0.05);
       const water = add(new THREE.Mesh(new THREE.BoxGeometry(2.94, wh, 2.94), this.mat.water));
+      water.userData.planColor = 0xcfe3f7;
+      water.userData.planColorDark = 0x2c5f94;
+      water.userData.planOpacity = 0.7;
       water.position.set(cx, bottom + wh / 2, 0);
       return box;
     };
@@ -278,9 +310,10 @@ export class PlantScene {
       const g = new THREE.BufferGeometry().setFromPoints([V(x, y0, 1.9), V(x, y1, 1.9)]);
       const l = add(new THREE.Line(g, this.mat.dim));
       l.computeLineDistances();
+      l.userData.mode3d = true;
       for (const yy of [y0, y1]) {
         const tick = add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([V(x - 0.2, yy, 1.9), V(x + 0.2, yy, 1.9)]), this.mat.tankEdge));
-        tick.userData.dim = true;
+        tick.userData.mode3d = true;
       }
       const t = label('plant-label dimtxt', text);
       t.position.set(x + (x < 0 ? -0.25 : 0.25), (y0 + y1) / 2, 1.9);
@@ -291,6 +324,7 @@ export class PlantScene {
     dim(DISCH_X - 1.9, ySuct, yDisch, `H_geo = ${d.Hgeo.toFixed(0)} m`);
     const axis = add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([V(SUCT_X - 1.9, 0, 1.9), V(2.6, 0, 1.9)]), this.mat.dim));
     axis.computeLineDistances();
+    axis.userData.mode3d = true;
     const axisLbl = label('plant-label dimtxt', 'eje de la bomba');
     axisLbl.position.set(2.7, 0, 1.9);
     add(axisLbl);
@@ -370,11 +404,144 @@ export class PlantScene {
     return { group: g, casing, coupling, label: lbl };
   }
 
+  /**
+   * Annotations of the piping drawing (shown in "Plano" style): equipment and line tags
+   * with nominal sizes, flow arrows, level marks ▽, ISA pressure indicators, check valves.
+   */
+  buildDrawing(d) {
+    const g = new THREE.Group();
+    g.userData.planOnly = true;
+    this.parts.add(g);
+    const V = (x, y, z) => new THREE.Vector3(x, y, z);
+    const lines = lineList(d.Qd, d.mode);
+    // Equipment tags.
+    g.add(tag(V(SUCT_X - 1.5, Math.max(this.ySuct, -0.2) + 1.6, -1.5), '<b>TK-01</b>aspiración'));
+    g.add(tag(V(DISCH_X + 1.5, this.yDisch + 1.4, -1.5), '<b>TK-02</b>descarga'));
+    this.eqTags = this.pumpObjects.map((po) => {
+      const t = tag(po.group.position.clone().add(V(0.6, -1.5, 1.4)), '');
+      g.add(t);
+      return t;
+    });
+    // Line tags on the longest segment of each kind of path, and flow arrows.
+    const kindOf = (path) => (path.flow !== 'main' ? (path.from === 'suction' ? 'suctionBranch' : 'dischargeBranch')
+      : path.from === 'between' ? 'between' : path.to === 'suction' || path.from === 'tank1' ? 'suction' : 'discharge');
+    const tagged = new Set();
+    this.lineTags = [];
+    const arrowColor = this.dark ? INK_BLUEPRINT : INK;
+    for (const path of this.paths) {
+      const kind = kindOf(path);
+      let best = null;
+      for (let i = 1; i < path.points.length; i++) {
+        const a = path.points[i - 1];
+        const b = path.points[i];
+        const len = a.distanceTo(b);
+        if (len > 0.9) g.add(flowArrow(a.clone().lerp(b, 0.5), b.clone().sub(a), 0.28, arrowColor));
+        if (!best || len > best.len) best = { a, b, len };
+      }
+      const line = lines[kind] ?? lines.discharge;
+      // One tag per line number: parallel branches share a size, so only branch A is tagged.
+      if (best && !tagged.has(kind) && path.flow !== 'B') {
+        tagged.add(kind);
+        const t = tag(best.a.clone().lerp(best.b, 0.3).add(V(0, 0.42, 0)), '', 'line-tag');
+        g.add(t);
+        this.lineTags.push({ obj: t, line, flow: path.flow });
+      }
+    }
+    // Level marks.
+    const el = (v) => `${v > 0.004 ? '+' : v < -0.004 ? '−' : '±'}${Math.abs(v).toFixed(2)}`;
+    g.add(levelMark(V(SUCT_X - 1.5, this.ySuct, 1.5), `N.A. ${el(d.Hs)}`));
+    g.add(levelMark(V(DISCH_X - 1.5, this.yDisch, 1.5), `N.A. ${el(d.Hs + d.Hgeo)}`));
+    g.add(levelMark(V(1.4, 0, 1.4), 'EJE ±0.00'));
+    // ISA pressure indicators at the gauge points.
+    const loopNo = { suction: '01', between: '02', discharge: '03', valveOut: '04' };
+    this.bubbles = this.gauges.map((gg) => {
+      const b = instrumentBubble(gg.label.position.clone().add(V(0, 0.5, -0.9)), 'PI', loopNo[gg.key]);
+      g.add(b);
+      return { key: gg.key, obj: b };
+    });
+    g.add(tag(this.valveLabel.position.clone(), '<b>V-01</b>compuerta', 'eq-tag small'));
+    // Check valves on each discharge branch in parallel (stop back-flow through a pump).
+    if (d.mode === 'parallel') {
+      this.pumpObjects.forEach((po, i) => {
+        const p = po.group.position;
+        const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.12, 24), this.mat.valve);
+        disc.position.set(p.x, 1.35, p.z);
+        g.add(disc);
+        g.add(tag(V(p.x + 0.35, 1.35, p.z), `<b>CV-${String.fromCharCode(65 + i)}</b>retención`, 'eq-tag small'));
+      });
+    }
+    // Everything already in the scene that belongs to the 3-D look gets flagged.
+    this.parts.traverse((o) => {
+      if (o.isCSS2DObject && !g.children.includes(o)) o.userData.mode3d = true;
+    });
+    g.traverse((o) => { o.userData.planOnly = true; });
+    this.drawingGroup = g;
+  }
+
+  /** "Plano" style on/off: flat fills + edges, isometric orthographic camera, annotations. */
+  setPlanStyle(on, dark) {
+    this.plan = on;
+    this.dark = dark;
+    applyPlanStyle(this.world, on, dark);
+    this.parts.traverse((o) => {
+      if (o.userData.planOnly) o.visible = on;
+      if (o.userData.mode3d) o.visible = !on;
+    });
+    if (this.ground) this.ground.visible = !on;
+    const wasOrtho = this.camera !== this.perspective && !!this.perspective;
+    if (on !== wasOrtho) {
+      setOrthographic(this, on);
+      if (on) this.frameIso();
+    }
+  }
+
+  /** Isometric framing for the piping drawing. */
+  frameIso() {
+    const yMid = (this.yGround + this.yDisch) / 2;
+    const span = Math.max(16, this.yDisch - this.yGround + 6);
+    this.controls.target.set(0.9, yMid, 0);
+    const dir = new THREE.Vector3(1, 0.82, 1).normalize();
+    this.camera.position.copy(this.controls.target).addScaledVector(dir, span * 2);
+    this.controls.update();
+    if (this.camera.isOrthographicCamera) {
+      // Fit the drawn parts (no ground) in view space, with a margin for the tags.
+      this.camera.updateMatrixWorld();
+      this.world.updateMatrixWorld(true);
+      const inv = this.camera.matrixWorldInverse;
+      const box = new THREE.Box3();
+      const v = new THREE.Vector3();
+      this.parts.traverse((o) => {
+        if (!o.isMesh || o === this.ground || !o.geometry) return;
+        o.geometry.computeBoundingBox?.();
+        const bb = o.geometry.boundingBox;
+        if (!bb) return;
+        for (let k = 0; k < 8; k++) {
+          v.set(k & 1 ? bb.max.x : bb.min.x, k & 2 ? bb.max.y : bb.min.y, k & 4 ? bb.max.z : bb.min.z);
+          box.expandByPoint(v.applyMatrix4(o.matrixWorld).applyMatrix4(inv));
+        }
+      });
+      const aspect = this.perspective.aspect;
+      const cx = (box.min.x + box.max.x) / 2;
+      const cy = (box.min.y + box.max.y) / 2;
+      const h = Math.max(box.max.y - box.min.y, (box.max.x - box.min.x) / aspect) * 1.12;
+      // Shift the target so the box centre lands in the middle of the view.
+      const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0);
+      const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
+      const shift = right.multiplyScalar(cx).add(up.multiplyScalar(cy));
+      this.controls.target.add(shift);
+      this.camera.position.add(shift);
+      Object.assign(this.camera, { left: (-h * aspect) / 2, right: (h * aspect) / 2, top: h / 2, bottom: -h / 2, zoom: 1 });
+      this.camera.updateProjectionMatrix();
+      this.controls.update();
+    }
+  }
+
   /** Camera that frames the whole installation for the current heights. */
   frame() {
+    if (this.plan && this.camera.isOrthographicCamera) { this.frameIso(); return; }
     const yMid = (this.yGround + this.yDisch) / 2;
     // Fit the width (tank to tank, ~15 units) and the height for the panel's aspect.
-    const aspect = Math.max(this.camera.aspect || 1, 0.4);
+    const aspect = Math.max((this.perspective ?? this.camera).aspect || 1, 0.4);
     const span = Math.max(16 / aspect, this.yDisch - this.yGround + 6, 12);
     this.controls.target.set(0.9, yMid, 0);
     // Pumps side by side in depth (parallel) need an oblique view to read both.
@@ -425,11 +592,13 @@ export class PlantScene {
   setLabelsVisible(on) { this.labels.domElement.style.display = on ? '' : 'none'; }
 
   resize(w, h) {
-    const before = this.camera.aspect;
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    const cam = this.perspective ?? this.camera;
+    const before = cam.aspect;
+    cam.aspect = w / h;
+    cam.updateProjectionMatrix();
+    resizeOrtho(this, w / h);
     this.labels.setSize(w, h);
-    if (this.yDisch !== undefined && Math.abs(before - this.camera.aspect) > 0.05) this.frame();
+    if (this.yDisch !== undefined && Math.abs(before - cam.aspect) > 0.05) this.frame();
   }
 
   render() {

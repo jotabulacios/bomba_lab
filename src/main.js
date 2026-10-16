@@ -7,11 +7,13 @@ import { buildParams } from './ui/params.js';
 import { drawCurves, curvesTable } from './ui/curves.js';
 import { drawImpellerPane } from './ui/impellerPane.js';
 import { drawSimilarityPane } from './ui/similarityPane.js';
-import { setupChrome, token } from './ui/chrome.js';
+import { setupChrome, token, isDark } from './ui/chrome.js';
 import { PumpScene } from './scene/pumpScene.js';
 import { PlantScene } from './scene/plantScene.js';
 import { DesignScene } from './scene/designScene.js';
 import { drawDesignPane } from './ui/designPane.js';
+import { drawPidPane } from './ui/pidPane.js';
+import { updateTitleBlock, exportDrawing } from './ui/titleBlock.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -229,6 +231,17 @@ function designData(r) {
 }
 let shownPump = 0; // which pump the detail view shows (series / parallel)
 
+/** Flows, pump states and the pressure profile of the installation (3-D and P&ID). */
+function installData(r) {
+  const Q = r.op ? r.op.Q : 0;
+  const branches = state.mode === 'parallel' ? { QA: r.pA?.Q ?? 0, QB: r.pB?.Q ?? 0 } : { QA: Q, QB: Q };
+  const heads = !r.op ? [0] : state.mode === 'series' ? [r.pA.H, r.pB.H] : [r.op.H];
+  const pumps = [{ n: state.n, Q: r.pA?.Q ?? 0, H: r.pA?.H ?? 0, active: (r.pA?.Q ?? 0) > 1e-6, cavitates: !!r.cavA }];
+  if (state.mode !== 'single') pumps.push({ n: state.n * (state.nB / 100), Q: r.pB?.Q ?? 0, H: r.pB?.H ?? 0, active: (r.pB?.Q ?? 0) > 1e-6, cavitates: !!r.cavB });
+  const profile = pressureProfile(r.sys, r.op ?? { Q: 0, H: 0 }, heads, state.mode);
+  return { Q, branches, pumps, profile };
+}
+
 function update3d(r) {
   const s = r.spec;
   const two = state.mode !== 'single';
@@ -245,15 +258,12 @@ function update3d(r) {
   scene3d.setCavitation(cav ? 0.3 + (2 * (req - r.npsha)) / req : 0);
 
   // Installation.
-  const Q = r.op ? r.op.Q : 0;
-  const branches = state.mode === 'parallel' ? { QA: r.pA?.Q ?? 0, QB: r.pB?.Q ?? 0 } : { QA: Q, QB: Q };
-  const heads = !r.op ? [0] : state.mode === 'series' ? [r.pA.H, r.pB.H] : [r.op.H];
-  const pumps = [{ n: state.n, Q: r.pA?.Q ?? 0, H: r.pA?.H ?? 0, active: (r.pA?.Q ?? 0) > 1e-6, cavitates: !!r.cavA }];
-  if (two) pumps.push({ n: state.n * (state.nB / 100), Q: r.pB?.Q ?? 0, H: r.pB?.H ?? 0, active: (r.pB?.Q ?? 0) > 1e-6, cavitates: !!r.cavB });
+  const { Q, branches, pumps, profile } = installData(r);
   plant.setState({
     mode: state.mode, Hs: state.Hs, Hgeo: state.Hgeo, valve: state.valve / 100, Q, branches, pumps, rho: r.rho,
-    profile: pressureProfile(r.sys, r.op ?? { Q: 0, H: 0 }, heads, state.mode),
+    profile,
     pipeArea: (s.Qd / 2.5),
+    Qd: s.Qd,
   });
 
   if (view === 'design') {
@@ -270,6 +280,19 @@ function update3d(r) {
   document.querySelectorAll('[data-pump]').forEach((b) => b.classList.toggle('active', Number(b.dataset.pump) === shownPump));
 }
 
+// Global drawing style: '3d' (render) or 'plan' (technical drawing).
+let drawStyle = '3d';
+function setDrawStyle(st) {
+  drawStyle = st;
+  document.querySelectorAll('[data-style]').forEach((b) => b.classList.toggle('active', b.dataset.style === st));
+  $('viewport').classList.toggle('plan', st === 'plan');
+  plant.setPlanStyle(st === 'plan', isDark());
+  design.setPlanStyle?.(st === 'plan', isDark());
+  scene3d.setPlanStyle?.(st === 'plan', isDark());
+  $('titleBlock').classList.toggle('hidden', view !== 'design' || st !== 'plan');
+}
+document.querySelectorAll('[data-style]').forEach((b) => b.addEventListener('click', () => setDrawStyle(b.dataset.style)));
+
 function setView(v) {
   view = v;
   document.querySelectorAll('.toolbar [data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
@@ -281,6 +304,7 @@ function setView(v) {
   for (const id of ['cutBtn', 'frameBtn']) $(id).classList.toggle('hidden', v !== 'pump');
   $('flowBtn').classList.toggle('hidden', v === 'design');
   $('designCtl').classList.toggle('hidden', v !== 'design');
+  $('titleBlock').classList.toggle('hidden', v !== 'design' || drawStyle !== 'plan');
   if (result) update3d(result);
 }
 
@@ -322,6 +346,29 @@ document.querySelectorAll('[data-dcam]').forEach((b) => b.addEventListener('clic
   document.querySelectorAll('[data-dcam]').forEach((x) => x.classList.toggle('active', x === b));
 }));
 $('dzVolute').addEventListener('change', (e) => { design.setVolute(e.target.checked); });
+document.querySelectorAll('[data-cut]').forEach((b) => b.addEventListener('click', () => {
+  const k = b.dataset.cut;
+  document.querySelectorAll('[data-cut]').forEach((x) => x.classList.toggle('active', x === b));
+  $('cutPos').value = 0;
+  $('cutAng').value = 0;
+  design.cut.angle = 0;
+  design.setCut(k);
+  $('cutPosWrap').classList.toggle('hidden', k === 'none');
+  $('cutAngWrap').classList.toggle('hidden', k !== 'B');
+  const cam = k === 'A' ? 'front' : k === 'B' ? 'side' : null;
+  if (cam) document.querySelectorAll('[data-dcam]').forEach((x) => x.classList.toggle('active', x.dataset.dcam === cam));
+  if (result) update3d(result);
+}));
+$('cutPos').addEventListener('input', (e) => design.setCutPos(Number(e.target.value) / 100));
+$('cutAng').addEventListener('input', (e) => { design.setCutAngle(Number(e.target.value)); if (result) update3d(result); });
+$('planPng').addEventListener('click', () => exportDrawing(design, $('viewport'), '.design-labels > div, .title-block', 'plano-bomba-lab.png'));
+function refreshTitleBlock() {
+  if (!result) return;
+  const s = result.spec;
+  const d = pump.at(s.Qd, result.optsA);
+  updateTitleBlock({ z: s.z, beta2: s.beta2, D2mm: result.D2 * 1000, Qh: s.Qd * 3600, H: d.H, n: state.n, view: design.viewName(), scale: design.scaleText() });
+}
+design.onView = refreshTitleBlock;
 $('dzGhost').addEventListener('change', () => { if (result) update3d(result); });
 document.querySelectorAll('[data-pump]').forEach((b) => b.addEventListener('click', () => { shownPump = Number(b.dataset.pump); if (result) update3d(result); }));
 $('cutBtn').addEventListener('click', tools.cut);
@@ -366,7 +413,7 @@ $('toggleTable').addEventListener('click', () => {
 
 let activeTab = 'curves';
 const chrome = setupChrome({
-  onTheme: () => { scene3d.setBackground(token('--stage-bg')); update(); },
+  onTheme: () => { scene3d.setBackground(token('--stage-bg')); if (drawStyle === 'plan') setDrawStyle('plan'); update(); },
   onResize: () => onResize(),
   onTab: (t) => { activeTab = t; if (t === 'design' && view !== 'design') setView('design'); if (result) renderPanes(result); },
   shortcuts: {
@@ -374,7 +421,9 @@ const chrome = setupChrome({
     2: () => chrome.setTab('impeller'),
     3: () => chrome.setTab('similarity'),
     4: () => chrome.setTab('design'),
+    5: () => chrome.setTab('pid'),
     d: () => { setView('design'); chrome.setTab('design'); },
+    b: () => setDrawStyle(drawStyle === 'plan' ? '3d' : 'plan'),
     p: toggleParams,
     x: tools.cut,
     f: tools.flow,
@@ -388,7 +437,11 @@ function renderPanes(r) {
   if (activeTab === 'curves') updateCurves(r);
   else if (activeTab === 'impeller') drawImpellerPane($('impellerPane'), r, pump);
   else if (activeTab === 'similarity') drawSimilarityPane($('similarityPane'), r, pump, state);
-  else {
+  else if (activeTab === 'pid') {
+    const { Q, pumps, profile } = installData(r);
+    const kPa = Object.fromEntries(profile.map((x) => [x.key, (x.p * r.rho * 9.80665) / 1000]));
+    drawPidPane($('pidPane'), { mode: state.mode, Qd: r.spec.Qd, Q, pumps, kPa, Hs: state.Hs, Hgeo: state.Hgeo, valve: state.valve / 100, dark: isDark() });
+  } else {
     const { cur, ref } = designData(r);
     drawDesignPane($('designPane'), cur, ref, {
       setRef: () => { refDesign = snapshot(); update(); },

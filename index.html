@@ -47,6 +47,10 @@
       <div><strong>Bomba Lab</strong><span>Simulador interactivo de bomba centrífuga</span></div>
     </div>
     <dl class="kpis" id="kpis" aria-label="Punto de funcionamiento"></dl>
+    <div class="seg small style-seg" role="group" aria-label="Estilo de dibujo">
+      <button data-style="3d" class="active" title="Render 3D">3D</button>
+      <button data-style="plan" title="Plano técnico (B)">Plano</button>
+    </div>
     <div class="top-actions">
       <button class="icon-btn" id="themeBtn" title="Tema claro/oscuro (T)" aria-label="Cambiar tema"><svg><use href="#i-moon"/></svg></button>
       <button class="icon-btn" id="helpBtn" title="Ayuda y atajos (?)" aria-label="Ayuda"><svg><use href="#i-help"/></svg></button>
@@ -85,11 +89,28 @@
       </nav>
       <div class="legend" id="legend3d"></div>
       <div class="design-ctl hidden" id="designCtl">
-        <div class="seg small" role="group" aria-label="Cámara">
-          <button data-dcam="front">Frente</button><button data-dcam="side">Costado</button><button data-dcam="iso" class="active">3D</button>
+        <div class="seg small" role="group" aria-label="Vista">
+          <button data-dcam="front">Frente</button><button data-dcam="side">Lateral</button><button data-dcam="iso" class="active">Iso</button>
         </div>
-        <label class="check"><input type="checkbox" id="dzVolute" checked> Voluta</label>
+        <div class="seg small" role="group" aria-label="Corte">
+          <button data-cut="none" class="active" title="Sin corte">Sin corte</button><button data-cut="A" title="Corte transversal, perpendicular al eje">A-A</button><button data-cut="B" title="Corte meridional, por el eje">B-B</button>
+        </div>
+        <label class="range hidden" id="cutPosWrap" title="Posición del plano de corte">plano <input type="range" id="cutPos" min="-100" max="100" step="1" value="0"></label>
+        <label class="range hidden" id="cutAngWrap" title="Ángulo del plano meridional">ángulo <input type="range" id="cutAng" min="-60" max="60" step="1" value="0"></label>
+        <label class="check"><input type="checkbox" id="dzVolute" checked> Carcasa</label>
         <label class="check"><input type="checkbox" id="dzGhost" checked> Referencia</label>
+        <button class="btn ghost small" id="planPng" title="Guarda la vista actual con cotas y cajetín">Descargar plano (PNG)</button>
+      </div>
+      <div class="title-block hidden" id="titleBlock" aria-label="Cajetín">
+        <div class="tb-title" id="tbTitle"></div>
+        <div class="tb-grid">
+          <div class="tb-cell"><small>Vista</small><span id="tbView"></span></div>
+          <div class="tb-cell"><small>Escala</small><span id="tbScale"></span></div>
+          <div class="tb-cell"><small>Unidades</small><span>mm</span></div>
+          <div class="tb-cell wide"><small>Punto de diseño</small><span id="tbDesign"></span></div>
+          <div class="tb-cell"><small>Fecha</small><span id="tbDate"></span></div>
+          <div class="tb-cell"><small>Dibujó</small><span>Bomba Lab</span></div>
+        </div>
       </div>
       <div class="seg pump-picker hidden" id="pumpPicker" role="group" aria-label="Bomba a mostrar">
         <button data-pump="0" class="active">Bomba 1</button>
@@ -105,6 +126,7 @@
         <button role="tab" class="tab" data-tab="impeller" aria-selected="false">Rodete</button>
         <button role="tab" class="tab" data-tab="similarity" aria-selected="false">Semejanza</button>
         <button role="tab" class="tab" data-tab="design" aria-selected="false">Diseño</button>
+        <button role="tab" class="tab" data-tab="pid" aria-selected="false">Esquema</button>
       </div>
       <div class="panel-body" data-pane="curves">
         <div class="card-head top">
@@ -123,6 +145,9 @@
       <div class="panel-body hidden" data-pane="design">
         <div id="designPane"></div>
       </div>
+      <div class="panel-body hidden" data-pane="pid">
+        <div id="pidPane"></div>
+      </div>
     </aside>
   </div>
 
@@ -131,7 +156,7 @@
       <div class="dialog-head"><h2>Bomba Lab</h2><button class="icon-btn small" aria-label="Cerrar">×</button></div>
       <p class="note">Mové los parámetros de la izquierda: el punto de funcionamiento es donde la curva de la bomba corta la del sistema. Cuando la ANPA disponible cae por debajo de la requerida, la bomba cavita.</p>
       <dl class="shortcuts">
-        <div><dt><kbd>1</kbd>–<kbd>4</kbd></dt><dd>Pestañas: curvas, rodete, semejanza, diseño</dd></div>
+        <div><dt><kbd>1</kbd>–<kbd>5</kbd></dt><dd>Pestañas: curvas, rodete, semejanza, diseño, esquema</dd></div>
         <div><dt><kbd>D</kbd></dt><dd>Vista diseño: la bomba sola a escala, contra una referencia</dd></div>
         <div><dt><kbd>V</kbd></dt><dd>Instalación / bomba por dentro (o clic en una bomba)</dd></div>
         <div><dt><kbd>F</kbd></dt><dd>Mostrar u ocultar el flujo</dd></div>
@@ -139,6 +164,7 @@
         <div><dt><kbd>X</kbd></dt><dd>Corte de la carcasa</dd></div>
         <div><dt><kbd>R</kbd></dt><dd>Restablecer la cámara</dd></div>
         <div><dt><kbd>P</kbd></dt><dd>Mostrar u ocultar los parámetros</dd></div>
+        <div><dt><kbd>B</kbd></dt><dd>Estilo 3D / plano técnico</dd></div>
         <div><dt><kbd>T</kbd></dt><dd>Tema claro / oscuro</dd></div>
       </dl>
     </form>

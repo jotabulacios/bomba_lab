@@ -6,6 +6,7 @@ Simulador web interactivo de una bomba centrífuga. Permite:
 - Seguir la ANPA (NPSH) y ver cuándo cavita.
 - Combinar dos bombas en serie o en paralelo.
 - Explorar la semejanza (ns y leyes de afinidad).
+- Verlo todo como **plano técnico**: isométrico de cañerías con tags, P&ID con símbolos ISA y cortes A-A y B-B de la bomba con rayado y cajetín.
 
 Todo con un rodete y una voluta en 3D por donde circula el flujo. Sigue la notación de los apuntes de Turbomáquinas de la cátedra: el 13 (*Bombas dinámicas*) y el 08 (*Análisis dimensional*). Es el proyecto hermano de [Turbofan Lab](https://github.com/jotabulacios/turbofan_lab).
 
@@ -29,11 +30,14 @@ make test       # tests del modelo físico (node --test)
 | Pestaña **Curvas** | H–Q con la curva del sistema y el punto de funcionamiento; ηT–Q con el BEP; P–Q; ANPAd y ANPAr contra Q con la zona de cavitación. Comparten el eje Q y un cursor común, y tienen vista de tabla. |
 | Pestaña **Rodete** | Triángulos de entrada y salida (c, w, u; c2 con y sin resbalamiento), incidencia, rodete en planta, efecto de β2 sobre H_t∞ y el grado de reacción, y los rendimientos ηh, ηv y ηm. |
 | Pestaña y vista **Diseño** | La bomba sola **a escala real**: rodete y voluta (la garganta se dimensiona con Q_d), con la referencia como fantasma translúcido y las cotas D1, D2, b2, β2 y z. Al pasar el mouse por un parámetro de diseño se resalta su cota. La pestaña muestra la sección meridional, las curvas H–Q y η–Q actual contra referencia, una tabla de cambios (H a caudal cero, BEP, P, ANPAr, ns, σ, D2/D1) y notas que explican cada cambio. Botones para fijar la referencia y para volver a ella. |
+| Pestaña **Esquema** | P&ID de la instalación con símbolos ISA 5.1: tanques con nivel, bomba(s) centrífuga(s), válvula de compuerta V-01, retenciones CV-A/B en paralelo, manómetros PI con su lectura. Cada línea lleva su número, DN y velocidad. Se redibuja para una bomba, serie o paralelo, con el estado de cada bomba (en marcha, sin aporte o cavitando). Debajo, la lista de líneas. Se descarga como SVG o PNG. |
 | Pestaña **Semejanza** | ns, nq y Ns; Φ y Ψ; tabla de tipos de rodete (apunte 13, p. 17); comparación entre las leyes de afinidad y el modelo al cambiar n o recortar D2. |
 | Visor 3D, **Instalación** (por defecto) | Tanque de aspiración (la bomba en carga o aspirando según Hs, con su cota), bomba sobre su base, cañería con válvula de volante y tanque elevado a H_geo (escala vertical comprimida). Funciona con una bomba, dos en serie o dos en paralelo con colectores; si una bomba no aporta, se ve apagada. Las partículas avanzan con el caudal de cada rama y se colorean por presión manométrica (vacío ↔ presión). Hay manómetros en vivo, y la bomba que cavita se pone en rojo. Clic en una bomba para verla por dentro. |
+| Estilo **3D / Plano** (barra superior, `B`) | En Plano, las vistas se dibujan como planos: fondo de papel (o *blueprint* en tema oscuro), piezas en relleno plano con aristas y contornos en tinta, cámara ortográfica. La **instalación** pasa a un isométrico de cañerías con tags de equipos (TK-01, P-101A/B, V-01, TK-02), números de línea con DN y velocidad, flechas de flujo, cotas de nivel ▽ y burbujas PI en vivo. |
+| Vista **Diseño**, cortes | **A-A** (transversal, perpendicular al eje: espiral de la voluta, lengua, álabes cortados y garganta acotada) y **B-B** (meridional, por el eje: perfil del rodete con b1, b2, D1 y D2, sección de la voluta, anillo de desgaste, prensaestopas y eje). Un control mueve el plano y otro gira el meridional. Las caras cortadas se rayan según ISO 128: carcasa a 45°, rodete a −45°, anillo de desgaste con rayado denso y eje sin rayar. Cotas con flechas, ejes en trazo y punto, traza del corte con flechas y letras, y en Plano un **cajetín** con vista, escala aproximada y punto de diseño. **Descargar plano (PNG)** guarda la vista con cotas y cajetín. |
 | Visor 3D, **Bomba** | Voluta de sección circular creciente con lengua y descarga vertical, rodete cerrado con álabes curvados, soporte de cojinetes, acople, motor y base. El **corte** abre media carcasa con un plano de corte. Las partículas siguen el flujo en el marco absoluto (c) o en el del rodete (w); en este último solo se dibuja el flujo en los canales y la carcasa queda fija. Cuando cavita aparecen burbujas en el borde de ataque. En serie o paralelo, un selector elige la bomba 1 o la 2. |
 
-Atajos: `1`–`4` pestañas · `D` diseño · `V` instalación/bomba · `F` flujo · `C` marco · `X` corte · `R` cámara · `P` parámetros · `T` tema · `?` ayuda.
+Atajos: `1`–`5` pestañas · `B` 3D/Plano · `D` diseño · `V` instalación/bomba · `F` flujo · `C` marco · `X` corte · `R` cámara · `P` parámetros · `T` tema · `?` ayuda.
 
 ## Ejemplos (entradas → salidas esperadas)
 
@@ -42,6 +46,7 @@ Atajos: `1`–`4` pestañas · `D` diseño · `V` instalación/bomba · `F` fluj
 | Didáctica, valores por defecto | 1450 rpm, D2 320 mm, β2 25°, z 7; H_geo 15 m; agua a 20 °C al nivel del mar | Q ≈ 180 m³/h, H ≈ 31.6 m, ηT ≈ 80 %, P ≈ 19 kW, ANPAd ≈ 11.7 m, ANPAr ≈ 2.3 m: no cavita |
 | Agua caliente aspirando | Igual, con T = 85 °C y Hs = −4 m | ANPAd ≈ 0.2 m < ANPAr ≈ 2.3 m: **cavita** (aparece el aviso, la zona sombreada y las burbujas) |
 | Preset Ruhrpumpen | 1475 rpm, a 240 m³/h | H ≈ 102 m y η ≈ 80.5 % (hoja de ensayo: 101.3 m y 80.2 %); ns ≈ 44, rodete radial lento |
+| Cañerías a Q de diseño | Didáctica, una bomba (Q_d = 180 m³/h) | Aspiración 10"-AS-001 (DN250, 0.98 m/s), descarga 8"-DE-002 (DN200, 1.55 m/s) |
 | Afinidad (apunte, p. 37) | 1150 → 1750 rpm, Q 612 gpm, H 35 ft, P 9 hp | 931 gpm, 81 ft, 32 hp; NPSH 3.5 → 7.1 ft (∝ n^1.7) |
 
 ## Arquitectura
@@ -52,11 +57,15 @@ index.html ── src/main.js ─┬─ physics/fluid.js       agua (ρ, pv por 
                            ├─ physics/system.js      curva del sistema, punto de funcionamiento, ANPAd
                            ├─ physics/combine.js     serie y paralelo
                            ├─ physics/similarity.js  afinidad, ns / nq / Ns, Φ, Ψ, tipo de rodete
+                           ├─ physics/piping.js      DN de cada línea por velocidad (Sch 40), números de línea
                            ├─ scene/plantScene.js    instalación: tanques, cañerías, válvula, serie/paralelo, manómetros
                            ├─ scene/pumpScene.js     bomba por dentro: rodete, voluta, motor, corte, flujo, burbujas
-                           ├─ scene/designScene.js   diseño a escala real, fantasma de referencia, cotas
+                           ├─ scene/designScene.js   diseño a escala real, cortes A-A / B-B, cotas, fantasma
+                           ├─ scene/solids.js        sólidos cerrados (carcasa, rodete, álabes) sin three.js
+                           ├─ scene/sectionCaps.js   relleno rayado de los cortes (capping por stencil)
+                           ├─ scene/drawingStyle.js  estilo Plano: relleno plano, aristas, contornos, tags, ▽, PI
                            ├─ scene/pumpGeometry.js  geometría compartida: álabes, tapa, voluta
-                           └─ ui/                    curvas, pestañas Rodete y Semejanza, parámetros, chrome
+                           └─ ui/                    curvas, pestañas, P&ID (pidPane), cajetín y PNG (titleBlock)
 ```
 
 Flujo de datos en cada cambio:
@@ -92,12 +101,18 @@ parámetros ─▶ buildPump(spec) (calibración en el punto de diseño, solo si
   - **Álabes:** curvatura dθ/dr = −1/(r·tan β) con β de β1 a β2.
   - **Flujo:** de línea media. Axial en la aspiración; siguiendo el canal en el marco del rodete; vórtice libre (cu ∝ 1/r) en la voluta; recto en la tobera.
   - **Cámara lenta común** para el rodete y las partículas, elegida para que el rodete no "rebobine" (efecto rueda de carreta).
+- **Cañerías:** cada línea toma el menor diámetro nominal (Sch 40) con velocidad ≤ 1.5 m/s en la aspiración (para cuidar la ANPAd) y ≤ 2.5 m/s en la descarga, dimensionada con el caudal de diseño; en paralelo los colectores llevan el doble que los ramales. La velocidad que muestran los tags es la del punto de funcionamiento.
+- **Plano y cortes:**
+  - Para poder cortarlas, todas las piezas son **sólidos cerrados con espesor**. La carcasa barre alrededor del eje un perfil meridional (tobera de aspiración, pared frontal, voluta abierta hacia el rodete, pared trasera y prensaestopas) con ρ creciente de la lengua a la garganta. La tapa trasera y el cubo, la tapa delantera con su cuello, el anillo de desgaste y los álabes también son sólidos. `solids.js` no usa three.js, y los tests verifican que cada sólido sea estanco y con orientación consistente.
+  - **Capping por stencil:** por cada grupo de piezas, las caras traseras suman y las delanteras restan en el stencil, sin test de profundidad. Donde el plano cruza material el stencil queda distinto de cero, y ahí se dibuja el plano rayado del grupo, que además lo vuelve a cero. Un grupo por rayado.
+  - **Contornos:** con la técnica de casco invertido (caras traseras desplazadas por la normal), así los tubos y las esferas tienen silueta desde cualquier ángulo. Las aristas vivas salen de `EdgesGeometry`.
+  - **Escala del cajetín:** se calcula para una pantalla de 96 ppp y se redondea a la escala normal más cercana. Es aproximada.
 - **Preset Ruhrpumpen:** se ajustó por mínimos cuadrados acotados a la hoja de ensayo del apunte (p. 48).
   - Altura: dentro del ~6 % en todos los puntos.
   - Punto garantizado: dentro del 1 %.
   - Rendimiento a carga parcial: el modelo da más que la hoja, porque no modela la recirculación a bajo caudal.
 
-**Límites:** el flujo es de línea media (no hay método de paneles álabe a álabe como en Turbofan Lab) y no se modelan la viscosidad, la recirculación ni la curva inestable de los álabes hacia adelante más allá de la forma de H–Q.
+**Límites:** las proporciones de la carcasa (espesores, tobera, prensaestopas, bridas) son ilustrativas, escaladas con D2; las únicas que salen del cálculo son la garganta de la voluta y el rodete. El flujo es de línea media (no hay método de paneles álabe a álabe como en Turbofan Lab) y no se modelan la viscosidad, la recirculación ni la curva inestable de los álabes hacia adelante más allá de la forma de H–Q.
 
 ## Referencias
 
@@ -106,4 +121,7 @@ parámetros ─▶ buildPump(spec) (calibración en el punto de diseño, solo si
 - J. F. Gülich, *Centrifugal Pumps* (resbalamiento, ANPAr, recirculación).
 - F. J. Wiesner (1967), *A review of slip factors for centrifugal impellers*, ASME J. Eng. Power.
 - S. L. Dixon & C. A. Hall, *Fluid Mechanics and Thermodynamics of Turbomachinery* (velocidad específica, Cordier).
-- Three.js: https://threejs.org/docs/
+- ANSI/ISA-5.1, *Instrumentation Symbols and Identification* (burbujas PI, símbolos del P&ID).
+- ISO 128-3 / ISO 128-50, *Technical drawings* (líneas, cortes y rayados).
+- ASME B36.10M, *Welded and Seamless Wrought Steel Pipe* (diámetros interiores Sch 40).
+- Three.js: https://threejs.org/docs/ · ejemplo de capping por stencil: https://threejs.org/examples/#webgl_clipping_stencil
