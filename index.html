@@ -139,6 +139,24 @@
         <div id="curves" class="curves"></div>
         <table id="curvesTable" class="data hidden"></table>
         <div id="testSheet" class="test-sheet"></div>
+        <details class="card csv-card" id="csvCard">
+          <summary>Cargar un ensayo propio (CSV) y ajustar el modelo</summary>
+          <p class="note">Una fila de encabezado con unidades entre corchetes. Sirven dos formatos: <b>procesado</b> (<code>Q [l/min]; H [m]; P [W]; eta [%]</code>; P y η son opcionales) o la <b>planilla de la guía del TP</b> (<code>Q [l/min]; Ps [kg/cm2]; Pe [mmHg]; V [v]; I [A]; Cosφ</code>), de la que salen H = Ps + Pe y P = V·I·cos φ. Separador coma, punto y coma o tabulación.</p>
+          <textarea id="csvText" rows="7" spellcheck="false" placeholder="Q [l/min];Ps [kg/cm2];Pe [mmHg];V [v];I [A];Cosφ&#10;0;1,80;0;221,2;1,403;0,990&#10;..."></textarea>
+          <div class="csv-row">
+            <label>Archivo <input type="file" id="csvFile" accept=".csv,.txt,text/csv,text/plain"></label>
+            <button class="link" id="csvExample" type="button">Usar ejemplo (TP 4)</button>
+          </div>
+          <div class="csv-row">
+            <label>Nombre <input type="text" id="csvName" value="Mi ensayo" size="14"></label>
+            <label>n <input type="number" id="csvN" value="2850" min="100" max="10000" step="10"> rpm</label>
+            <label>Etapas <input type="number" id="csvStages" value="1" min="1" max="12" step="1"></label>
+            <label>Potencia <select id="csvPower"><option value="auto">detectar</option><option value="shaft">en el eje</option><option value="electric">eléctrica</option></select></label>
+            <label title="Si el ensayo midió potencia eléctrica, el η máximo de la bomba sola (catálogo) separa las pérdidas del motor de las de la bomba">η bomba catálogo <input type="number" id="csvEtaPump" min="5" max="95" step="1" placeholder="opcional"> %</label>
+          </div>
+          <div class="design-actions"><button class="btn" id="csvFit" type="button">Ajustar modelo</button></div>
+          <p class="note" id="csvMsg" role="status"></p>
+        </details>
       </div>
       <div class="panel-body hidden" data-pane="impeller">
         <div id="impellerPane"></div>

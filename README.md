@@ -25,9 +25,9 @@ make test       # tests del modelo físico (node --test)
 
 | Dónde | Qué hace |
 |---|---|
-| Panel izquierdo | Preset (*Didáctica* o *Ruhrpumpen*, ajustado a la hoja de ensayo del apunte), operación (n, recorte de D2), diseño del rodete (β2, z, D2, b2, D1, Q de diseño, ηh, resbalamiento), fluido (temperatura del agua, altitud), instalación (H_geo, pérdidas, válvula, altura de aspiración Hs) y conexión (una bomba, serie o paralelo). |
+| Panel izquierdo | Preset (*Didáctica*; *Ruhrpumpen*, ajustado a la hoja de ensayo del apunte; *Grundfos CM5-2*, ajustado al ensayo del TP 4; o un ensayo propio cargado por CSV), operación (n, recorte de D2), diseño del rodete (β2, z, D2, b2, D1, Q de diseño, ηh, resbalamiento), fluido (temperatura del agua, altitud), instalación (H_geo, pérdidas, válvula, altura de aspiración Hs) y conexión (una bomba, serie o paralelo). |
 | Barra superior | Punto de funcionamiento: Q, H, ηT, P eje, ANPAd, ANPAr, τ de Thoma, ns y estado de la ANPA (sin cavitación, margen bajo o cavita). |
-| Pestaña **Curvas** | H–Q con la curva del sistema y el punto de funcionamiento; ηT–Q con el BEP; P–Q; ANPAd y ANPAr contra Q con la zona de cavitación. Comparten el eje Q y un cursor común, y tienen vista de tabla. Con el preset *Ruhrpumpen* se superponen los **puntos del ensayo** (□), llevados con las leyes de afinidad a la n y el D2 actuales, y una tarjeta **Hoja de ensayo** compara H, η y P medidos contra el modelo y verifica el punto garantizado con la tolerancia HI 2016 grado 2B. |
+| Pestaña **Curvas** | H–Q con la curva del sistema y el punto de funcionamiento; ηT–Q con el BEP; P–Q; ANPAd y ANPAr contra Q con la zona de cavitación. Comparten el eje Q y un cursor común, y tienen vista de tabla. Con los presets *Ruhrpumpen* y *CM5-2 (TP 4)* o con un ensayo propio se superponen los **puntos del ensayo** (□), llevados con las leyes de afinidad a la n y el D2 actuales, y una tarjeta **Hoja de ensayo** compara H, η y P medidos contra el modelo y verifica el punto garantizado con la tolerancia HI 2016 grado 2B (cuando la hoja la trae). Si el ensayo midió potencia **eléctrica**, se comparan P y η del conjunto motor-bomba. Al final, **Cargar un ensayo propio (CSV)**: acepta el formato procesado (Q, H, P, η) o la planilla de la guía del TP (Q, Ps, Pe, V, I, cos φ), ajusta el modelo y lo deja como preset; queda guardado en el navegador. |
 | Pestaña **Rodete** | Triángulos de entrada y salida (c, w, u; c2 con y sin resbalamiento), incidencia, rodete en planta, efecto de β2 sobre H_t∞ y el grado de reacción, y los rendimientos ηh, ηv y ηm. |
 | Pestaña y vista **Diseño** | La bomba sola **a escala real**: rodete y voluta (la garganta se dimensiona con Q_d), con la referencia como fantasma translúcido y las cotas D1, D2, b2, β2 y z. Al pasar el mouse por un parámetro de diseño se resalta su cota. La pestaña muestra la sección meridional, las curvas H–Q y η–Q actual contra referencia, una tabla de cambios (H a caudal cero, BEP, P, ANPAr, ns, σ, D2/D1) y notas que explican cada cambio. Botones para fijar la referencia y para volver a ella. |
 | Pestaña **Esquema** | P&ID de la instalación con símbolos ISA 5.1: tanques con nivel, bomba(s) centrífuga(s), válvula de compuerta V-01, retenciones CV-A/B en paralelo, manómetros PI con su lectura. Cada línea lleva su número, DN y velocidad. Se redibuja para una bomba, serie o paralelo, con el estado de cada bomba (en marcha, sin aporte o cavitando). Debajo, la lista de líneas. Se descarga como SVG o PNG. |
@@ -47,6 +47,8 @@ Atajos: `1`–`5` pestañas · `B` 3D/Plano · `D` diseño · `V` instalación/b
 | Agua caliente aspirando | Igual, con T = 85 °C y Hs = −4 m | ANPAd ≈ 0.2 m < ANPAr ≈ 2.3 m: **cavita** (aparece el aviso, la zona sombreada y las burbujas) |
 | Preset Ruhrpumpen | 1475 rpm, a 240 m³/h | H ≈ 102 m y η ≈ 80.5 % (hoja de ensayo: 101.3 m y 80.2 %); ns ≈ 44, rodete radial lento |
 | Cañerías a Q de diseño | Didáctica, una bomba (Q_d = 180 m³/h) | Aspiración 10"-AS-001 (DN250, 0.98 m/s), descarga 8"-DE-002 (DN200, 1.55 m/s) |
+| Preset CM5-2 (TP 4) | 2850 rpm (supuesta), 2 etapas, potencia eléctrica | Modelo contra el ensayo: H dentro del 3 %, η del conjunto ±1.5 puntos, P eléctrica ±4 %; η de la bomba sola 50 % (catálogo) |
+| CSV de la guía del TP | `Q [l/min];Ps [kg/cm2];Pe [mmHg];V [v];I [A];Cosφ` con `0;1,80;0;221,2;1,403;0,990` | H = 18.0 m, P = 307 W (la primera fila del TP 4) |
 | Afinidad (apunte, p. 37) | 1150 → 1750 rpm, Q 612 gpm, H 35 ft, P 9 hp | 931 gpm, 81 ft, 32 hp; NPSH 3.5 → 7.1 ft (∝ n^1.7) |
 
 ## Arquitectura
@@ -57,7 +59,9 @@ index.html ── src/main.js ─┬─ physics/fluid.js       agua (ρ, pv por 
                            ├─ physics/system.js      curva del sistema, punto de funcionamiento, ANPAd
                            ├─ physics/combine.js     serie y paralelo
                            ├─ physics/similarity.js  afinidad, ns / nq / Ns, Φ, Ψ, tipo de rodete
-                           ├─ physics/testSheet.js   hoja de ensayo Ruhrpumpen (apunte 13, p. 48), afinidad y tolerancia HI
+                           ├─ physics/testSheet.js   ensayos Ruhrpumpen (p. 48) y TP 4 (p. 49), afinidad, tolerancia HI
+                           ├─ physics/csvTest.js     lectura de ensayos en CSV (procesado o planilla del TP)
+                           ├─ physics/fit.js         ajuste del modelo a un ensayo (Nelder–Mead acotado)
                            ├─ physics/piping.js      DN de cada línea por velocidad (Sch 40), números de línea
                            ├─ scene/plantScene.js    instalación: tanques, cañerías, válvula, serie/paralelo, manómetros
                            ├─ scene/pumpScene.js     bomba por dentro: rodete, voluta, motor, corte, flujo, burbujas
@@ -102,6 +106,8 @@ parámetros ─▶ buildPump(spec) (calibración en el punto de diseño, solo si
   - **Álabes:** curvatura dθ/dr = −1/(r·tan β) con β de β1 a β2.
   - **Flujo:** de línea media. Axial en la aspiración; siguiendo el canal en el marco del rodete; vórtice libre (cu ∝ 1/r) en la voluta; recto en la tobera.
   - **Cámara lenta común** para el rodete y las partículas, elegida para que el rodete no "rebobine" (efecto rueda de carreta).
+- **Ajuste a ensayos (`fitPump`):** se mantienen β2, z y las proporciones de la bomba base y se ajustan D2, b2/D2, Q de diseño, ηh, la relación de choque y ηm. Se minimizan los errores relativos de H y, si están, los de η y P, con Nelder–Mead sobre parámetros acotados (transformación sigmoide) y reinicios. Con potencia eléctrica se suma un motor: P_el = P0 + P_eje/η_motor. Como con esa sola medición el reparto entre motor y bomba no queda determinado, se puede fijar el η máximo de la bomba sola del catálogo. Las bombas **multietapa** se modelan como etapas iguales en serie: la altura y la potencia se multiplican, y las velocidades y la ANPAr son las de una etapa.
+- **TP 4:** según la guía del TP, la bomba del laboratorio es una Grundfos CM5-2 (dos etapas, 1×230 V, 50 Hz). Los puntos se leyeron del gráfico del apunte a 300 ppp (±2 %), y la velocidad (2850 rpm) es supuesta. El η máximo de la bomba sola (≈ 50 %) sale de la curva de catálogo de la guía.
 - **Cañerías:** cada línea toma el menor diámetro nominal (Sch 40) con velocidad ≤ 1.5 m/s en la aspiración (para cuidar la ANPAd) y ≤ 2.5 m/s en la descarga, dimensionada con el caudal de diseño; en paralelo los colectores llevan el doble que los ramales. La velocidad que muestran los tags es la del punto de funcionamiento.
 - **Plano y cortes:**
   - Para poder cortarlas, todas las piezas son **sólidos cerrados con espesor**. La carcasa barre alrededor del eje un perfil meridional (tobera de aspiración, pared frontal, voluta abierta hacia el rodete, pared trasera y prensaestopas) con ρ creciente de la lengua a la garganta. La tapa trasera y el cubo, la tapa delantera con su cuello, el anillo de desgaste y los álabes también son sólidos. `solids.js` no usa three.js, y los tests verifican que cada sólido sea estanco y con orientación consistente.
@@ -123,6 +129,7 @@ parámetros ─▶ buildPump(spec) (calibración en el punto de diseño, solo si
 - J. F. Gülich, *Centrifugal Pumps* (resbalamiento, ANPAr, recirculación).
 - F. J. Wiesner (1967), *A review of slip factors for centrifugal impellers*, ASME J. Eng. Power.
 - S. L. Dixon & C. A. Hall, *Fluid Mechanics and Thermodynamics of Turbomachinery* (velocidad específica, Cordier).
+- Guía del TP *Ensayo de bomba centrífuga* (Turbomáquinas 6720, Rev A): Grundfos CM5-2, planilla de ensayo, ISO 9906 (NPSH3).
 - ANSI/ISA-5.1, *Instrumentation Symbols and Identification* (burbujas PI, símbolos del P&ID).
 - ISO 128-3 / ISO 128-50, *Technical drawings* (líneas, cortes y rayados).
 - ASME B36.10M, *Welded and Seamless Wrought Steel Pipe* (diámetros interiores Sch 40).

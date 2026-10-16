@@ -14,10 +14,13 @@ import { DesignScene } from './scene/designScene.js';
 import { drawDesignPane } from './ui/designPane.js';
 import { drawPidPane } from './ui/pidPane.js';
 import { updateTitleBlock, exportDrawing } from './ui/titleBlock.js';
-import { RUHRPUMPEN_TEST, scaledTestPoints, guaranteeCheck } from './physics/testSheet.js';
+import { RUHRPUMPEN_TEST, TP4_TEST, scaledTestPoints, guaranteeCheck } from './physics/testSheet.js';
+import { parseTestCSV } from './physics/csvTest.js';
+import { fitPump, modelAt } from './physics/fit.js';
 
-// Measured performance of a preset, when the course notes have its test sheet.
-const TEST_SHEETS = { ruhrpumpen: RUHRPUMPEN_TEST };
+// Measured performance of a preset: the course notes' test sheets, plus a test loaded by
+// the user (CSV), fitted and kept in this browser.
+const TEST_SHEETS = { ruhrpumpen: RUHRPUMPEN_TEST, tp4: TP4_TEST };
 
 const $ = (id) => document.getElementById(id);
 
@@ -25,6 +28,7 @@ const $ = (id) => document.getElementById(id);
 const PRESET_INSTALL = {
   didactica: { Hgeo: 15, hfd: 16, Hs: 2, hsd: 0.4 },
   ruhrpumpen: { Hgeo: 70, hfd: 62, Hs: 1, hsd: 0.5 },
+  tp4: { Hgeo: 8, hfd: 6, Hs: 0.5, hsd: 0.2 },
 };
 
 function stateFromPreset(key, keep = {}) {
@@ -34,7 +38,7 @@ function stateFromPreset(key, keep = {}) {
     nDesign: s.n,
     n: s.n, trim: 100,
     beta2: s.beta2, z: s.z, D2mm: s.D2 * 1000, b2mm: s.b2 * 1000, D1mm: s.D1 * 1000,
-    Qdh: Math.round(s.Qd * 3600), etaHd: s.etaHd, slip: s.slip,
+    Qdh: Math.round(s.Qd * 36000) / 10, etaHd: s.etaHd, slip: s.slip,
     T: 20, alt: 0, valve: 100, mode: 'single', nB: 100,
     ...PRESET_INSTALL[key],
     ...keep,
@@ -128,10 +132,10 @@ function updateKpis(r) {
   const statusText = { ok: 'Sin cavitación', 'margen-bajo': 'Margen bajo', cavita: 'CAVITA', 'sin-caudal': 'Sin caudal' }[r.status];
   const statusCls = { ok: 'ok', 'margen-bajo': 'warn', cavita: 'bad', 'sin-caudal': 'warn' }[r.status];
   const k = [
-    ['Q', op ? (op.Q * 3600).toFixed(0) : '—', 'm³/h'],
+    ['Q', op ? (op.Q * 3600).toFixed(op.Q * 3600 < 20 ? 1 : 0) : '—', 'm³/h'],
     ['H', op ? op.H.toFixed(1) : '—', 'm'],
     ['ηT', op ? (100 * r.etaGroup).toFixed(1) : '—', '%'],
-    ['P eje', op ? (r.Ptot / 1000).toFixed(1) : '—', 'kW'],
+    ['P eje', op ? (r.Ptot / 1000).toFixed(r.Ptot < 10e3 ? 2 : 1) : '—', 'kW'],
     ['ANPAd', r.npsha.toFixed(2), 'm'],
     ['ANPAr', r.npshr.toFixed(2), 'm'],
     ['τ Thoma', r.pA ? (r.npshr / r.pA.H).toFixed(3) : '—', ''],
@@ -148,27 +152,37 @@ function updateKpis(r) {
 function drawTestSheet(sheet, tp, r) {
   const host = $('testSheet');
   if (!sheet) { host.innerHTML = ''; return; }
-  const at = (Qh) => pump.at(Qh / 3600, r.optsA);
-  const f = (v, d = 1) => v.toFixed(d);
+  const electric = sheet.power === 'electric';
+  const at = (Qh) => modelAt(pump, Qh, { ...r.optsA, electric, motor: sheet.motor });
+  const f = (v, d = 1) => (Number.isFinite(v) ? v.toFixed(d) : '—');
   const dp = (m, t) => (t > 1e-9 ? `${m >= t ? '+' : '−'}${f(Math.abs(100 * (m - t) / t))} %` : '—');
   const rows = tp.map((p) => {
     const m = at(p.Q);
-    return `<tr><td>${f(p.Q, 0)}</td><td>${f(p.H)}</td><td>${f(m.H)}</td><td>${dp(m.H, p.H)}</td><td>${f(100 * p.eta)}</td><td>${f(100 * m.etaT)}</td><td>${f(p.P)}</td><td>${f(m.Peje / 1000)}</td></tr>`;
+    return `<tr><td>${f(p.Q, p.Q < 20 ? 2 : 0)}</td><td>${f(p.H)}</td><td>${f(m.H)}</td><td>${dp(m.H, p.H)}</td><td>${f(100 * p.eta)}</td><td>${f(100 * m.eta)}</td><td>${f(p.P, p.P < 5 ? 3 : 1)}</td><td>${f(m.P, m.P < 5 ? 3 : 1)}</td></tr>`;
   }).join('');
   const atHome = Math.abs(state.n - sheet.n) < 0.5 && Math.abs(r.D2 - sheet.D2) < 1e-4;
   const designSame = DESIGN_KEYS.every((k) => state[k] === stateFromPreset(state.preset)[k]);
   const g = sheet.guarantee;
-  const chk = guaranteeCheck(sheet, (Qh) => pump.at(Qh / 3600, { ...r.optsA, n: sheet.n, D2: sheet.D2 }).H);
+  let guarantee = '';
+  if (g) {
+    const chk = guaranteeCheck(sheet, (Qh) => pump.at(Qh / 3600, { ...r.optsA, n: sheet.n, D2: sheet.D2 }).H);
+    guarantee = `<p class="note">Punto garantizado: ${g.Q} m³/h, ${g.H} m, ${f(100 * g.eta)} %, ${f(g.P)} kW. Tolerancia HI 2016 grado 2B: Q ±${100 * sheet.tolerance.Q} %, H ±${100 * sheet.tolerance.H} %, P 0/+${100 * sheet.tolerance.Pplus} %.
+        El modelo a ${sheet.n} rpm da ${f(chk.H)} m en ${g.Q} m³/h (${dp(chk.H, g.H)}): <span class="${chk.inBox ? 'ok' : 'bad'}">${chk.inBox ? 'pasa por la ventana de tolerancia' : 'fuera de la ventana de tolerancia'}</span>. La hoja dice APROBADO.</p>`;
+  }
+  const motorNote = electric
+    ? `<p class="note">Potencia <b>eléctrica</b> y η del <b>conjunto motor-bomba</b>. Modelo del motor: P_el = ${f(sheet.motor.P0 * 1000, 0)} W en vacío + P_eje / ${f(sheet.motor.eta, 2)}. ${Number.isFinite(sheet.etaPump) ? `El reparto entre motor y bomba sale del η máximo de la bomba sola del catálogo (${f(100 * sheet.etaPump, 0)} %).` : 'Con solo la potencia eléctrica no se pueden separar las pérdidas del motor de las de la bomba: si tenés el η de la bomba del catálogo, cargalo y el reparto mejora.'}</p>`
+    : '';
+  const stagesNote = (sheet.stages ?? 1) > 1 ? ` Bomba de ${sheet.stages} etapas: el modelo suma ${sheet.stages} rodetes iguales.` : '';
+  const fitNote = sheet.fit ? `<p class="note">Ajuste: H ${f(100 * sheet.fit.rms.H)} % rms (peor ${f(100 * sheet.fit.worstH)} %)${sheet.fit.rms.eta !== null ? `, η ${f(100 * sheet.fit.rms.eta)} puntos rms` : ''}${sheet.fit.rms.P !== null ? `, P ${f(100 * sheet.fit.rms.P)} % rms` : ''}. Se mantienen β2 = ${state.beta2}° y z = ${state.z} de la base; se ajustan D2, b2, Q de diseño y las pérdidas.</p>` : '';
   host.innerHTML = `
     <section class="card">
       <div class="card-head"><h3>Hoja de ensayo</h3><span class="note">${sheet.title} · ${sheet.source}</span></div>
-      <p class="note">Puntos medidos (□ en las curvas), homologados a ${sheet.n} rpm y D2 ${f(sheet.D2 * 1000, 0)} mm${atHome ? '' : `, llevados con las leyes de afinidad a ${f(state.n, 0)} rpm y D2 ${f(r.D2 * 1000, 0)} mm`}.${designSame ? '' : ' <b>Cambiaste el diseño del rodete: el ensayo es de la bomba original.</b>'}</p>
+      <p class="note">Puntos medidos (□ en las curvas) a ${sheet.n} rpm${sheet.nAssumed ? ' (supuesta)' : ''} y D2 ${f(sheet.D2 * 1000, 0)} mm${atHome ? '' : `, llevados con las leyes de afinidad a ${f(state.n, 0)} rpm y D2 ${f(r.D2 * 1000, 0)} mm`}.${stagesNote}${designSame ? '' : ' <b>Cambiaste el diseño del rodete: el ensayo es de la bomba original.</b>'}</p>
       <table class="data">
         <tr><th>Q m³/h</th><th>H ensayo</th><th>H modelo</th><th>ΔH</th><th>η ensayo %</th><th>η modelo %</th><th>P ensayo kW</th><th>P modelo kW</th></tr>
         ${rows}
       </table>
-      <p class="note">Punto garantizado: ${g.Q} m³/h, ${g.H} m, ${f(100 * g.eta)} %, ${f(g.P)} kW. Tolerancia HI 2016 grado 2B: Q ±${100 * sheet.tolerance.Q} %, H ±${100 * sheet.tolerance.H} %, P 0/+${100 * sheet.tolerance.Pplus} %.
-        El modelo a ${sheet.n} rpm da ${f(chk.H)} m en ${g.Q} m³/h (${dp(chk.H, g.H)}): <span class="${chk.inBox ? 'ok' : 'bad'}">${chk.inBox ? 'pasa por la ventana de tolerancia' : 'fuera de la ventana de tolerancia'}</span>. La hoja dice APROBADO.</p>
+      ${motorNote}${fitNote}${guarantee}
     </section>`;
 }
 
@@ -189,6 +203,10 @@ function updateCurves(r) {
   const sheet = TEST_SHEETS[state.preset];
   const tp = sheet ? scaledTestPoints(sheet, state.n, r.D2) : null;
   const testSeries = (f) => (tp ? [{ name: 'Ensayo', cls: 'test', points: true, pts: tp.map((p) => [p.Q, f(p)]) }] : []);
+  // A test with electrical power compares with the motor + pump set, not with the shaft.
+  const elec = sheet?.power === 'electric';
+  const setAt = (p) => modelAt(pump, p.Q * 3600, { ...r.optsA, electric: true, motor: sheet.motor });
+  const setSeries = (name, f) => (elec ? [{ name, cls: 'muted', dash: true, pts: single.map((p) => [p.Q * 3600, f(setAt(p))]) }] : []);
 
   const hSeries = combo
     ? [{ name: state.mode === 'series' ? 'Serie' : 'Paralelo', cls: 's1', pts: pts((Q) => r.group.headAt(Q)) },
@@ -208,13 +226,13 @@ function updateCurves(r) {
     },
     {
       key: 'eta', title: `Rendimiento total ηT${per}`, unit: '%', digits: 1, yMax: 100, vline: pumpX,
-      series: [{ name: 'ηT', cls: 's1', pts: single.map((p) => [p.Q * 3600, 100 * p.etaT]) }, ...testSeries((p) => 100 * p.eta)],
+      series: [{ name: 'ηT', cls: 's1', pts: single.map((p) => [p.Q * 3600, 100 * p.etaT]) }, ...setSeries('η motor+bomba', (m) => 100 * m.eta), ...testSeries((p) => 100 * p.eta)],
       markers: [{ x: r.bep.Q * 3600, y: 100 * r.bep.etaT, label: `BEP ${(100 * r.bep.etaT).toFixed(1)} %`, cls: 'bep' },
         ...(r.pA ? [{ x: pumpX, y: 100 * r.pA.etaT, cls: 'op' }] : [])],
     },
     {
       key: 'P', title: `Potencia en el eje${per}`, unit: 'kW', digits: 1, vline: pumpX,
-      series: [{ name: 'P eje', cls: 's1', pts: single.map((p) => [p.Q * 3600, p.Peje / 1000]) }, ...testSeries((p) => p.P)],
+      series: [{ name: 'P eje', cls: 's1', pts: single.map((p) => [p.Q * 3600, p.Peje / 1000]) }, ...setSeries('P eléctrica', (m) => m.P), ...testSeries((p) => p.P)],
       markers: r.pA ? [{ x: pumpX, y: r.pA.Peje / 1000, cls: 'op' }] : [],
     },
     {
@@ -432,7 +450,85 @@ function onParam(k, v) {
   update();
 }
 
-$('preset').innerHTML = Object.entries(PRESETS).map(([k, s]) => `<option value="${k}">${s.name}</option>`).join('');
+// ---------- Own test (CSV) ----------
+const CSV_KEY = 'bombaLab.customTest';
+const TP4_EXAMPLE = ['Q [l/min];H [m];Ne [W];eta [%]', ...TP4_TEST.points.map((p) => [p.Q / 0.06, p.H, p.P * 1000, 100 * p.eta].map((v) => String(+v.toFixed(2)).replace('.', ',')).join(';'))].join('\n');
+
+/** Parse, fit and register the user's test as the "custom" preset. Returns a summary. */
+function loadCustomTest({ csv, n, stages, power, name, etaPump }) {
+  const parsed = parseTestCSV(csv);
+  const kind = power === 'auto' ? parsed.power ?? 'shaft' : power;
+  const test = { name, n, stages, power: kind, points: parsed.points, etaPump: etaPump ? etaPump / 100 : undefined };
+  const fit = fitPump(test, PRESETS.didactica);
+  PRESETS.custom = { ...fit.spec, name: `${name} (ensayo cargado)` };
+  TEST_SHEETS.custom = {
+    title: name, source: 'CSV cargado', n, stages, D2: fit.spec.D2, power: kind, motor: fit.motor, etaPump: test.etaPump,
+    points: parsed.points, fit: { rms: fit.rms, worstH: fit.worstH },
+  };
+  // An installation whose system curve crosses the pump near its design flow.
+  const Hd = buildPump(PRESETS.custom).at(fit.spec.Qd).H;
+  PRESET_INSTALL.custom = { Hgeo: Math.round(0.55 * Hd), hfd: Math.round(0.45 * Hd * 2) / 2, Hs: 0.5, hsd: Math.min(1, Math.round(0.03 * Hd * 10) / 10) };
+  return { parsed, kind, fit };
+}
+
+function presetOptions() {
+  $('preset').innerHTML = Object.entries(PRESETS).map(([k, s]) => `<option value="${k}">${s.name}</option>`).join('');
+  $('preset').value = state.preset;
+}
+
+function csvForm() {
+  const etaPump = parseFloat($('csvEtaPump').value.replace(',', '.'));
+  return { csv: $('csvText').value, n: Number($('csvN').value), stages: Number($('csvStages').value), power: $('csvPower').value, name: $('csvName').value.trim() || 'Mi ensayo', etaPump: Number.isFinite(etaPump) ? etaPump : null };
+}
+
+$('csvExample').addEventListener('click', () => {
+  $('csvText').value = TP4_EXAMPLE;
+  $('csvN').value = 2850;
+  $('csvStages').value = 2;
+  $('csvPower').value = 'electric';
+  $('csvName').value = 'TP 4 (ejemplo)';
+  $('csvEtaPump').value = 50;
+});
+$('csvFile').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (file) $('csvText').value = await file.text();
+});
+$('csvFit').addEventListener('click', () => {
+  const msg = $('csvMsg');
+  msg.classList.remove('err');
+  const form = csvForm();
+  try {
+    if (!(form.n > 0)) throw new Error('Falta la velocidad n del ensayo.');
+    const { parsed, kind, fit } = loadCustomTest(form);
+    try { localStorage.setItem(CSV_KEY, JSON.stringify(form)); } catch { /* storage unavailable: keep it for this visit */ }
+    Object.assign(state, stateFromPreset('custom'));
+    refDesign = snapshot();
+    design.fitted = false;
+    presetOptions();
+    rebuildParams();
+    update();
+    const pct = (v) => (v === null ? '—' : `${(100 * v).toFixed(1)} %`);
+    msg.innerHTML = `${parsed.points.length} puntos, potencia ${kind === 'electric' ? 'eléctrica' : 'en el eje'}. Ajuste: H ${pct(fit.rms.H)} rms (peor ${pct(fit.worstH)}), η ${fit.rms.eta === null ? '—' : `${(100 * fit.rms.eta).toFixed(1)} puntos`}, P ${pct(fit.rms.P)}. Rodete: D2 ${(fit.spec.D2 * 1000).toFixed(0)} mm, b2 ${(fit.spec.b2 * 1000).toFixed(1)} mm, Q de diseño ${(fit.spec.Qd * 3600).toFixed(1)} m³/h.${parsed.warnings.length ? `<br>${parsed.warnings.join('<br>')}` : ''}`;
+  } catch (err) {
+    msg.classList.add('err');
+    msg.textContent = err.message;
+  }
+});
+// A test loaded in an earlier visit comes back as the "custom" preset.
+try {
+  const saved = JSON.parse(localStorage.getItem(CSV_KEY) ?? 'null');
+  if (saved) {
+    loadCustomTest(saved);
+    Object.assign($('csvText'), { value: saved.csv });
+    $('csvN').value = saved.n;
+    $('csvStages').value = saved.stages;
+    $('csvPower').value = saved.power;
+    $('csvName').value = saved.name;
+    $('csvEtaPump').value = saved.etaPump ?? '';
+  }
+} catch { /* nothing saved, or it no longer parses */ }
+
+presetOptions();
 $('preset').addEventListener('change', (e) => {
   Object.assign(state, stateFromPreset(e.target.value));
   refDesign = snapshot();

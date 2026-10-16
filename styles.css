@@ -413,3 +413,12 @@ table.data td.up { color: var(--s3); } table.data td.down { color: var(--s2); }
 .test-sheet .ok { color: var(--good, #1baf7a); font-weight: 600; }
 .test-sheet .bad { color: var(--crit, #d03b3b); font-weight: 600; }
 .mode-seg { position: absolute; left: 12px; top: 12px; z-index: 3; }
+
+/* CSV test import */
+.csv-card { margin-top: 12px; }
+.csv-card summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+.csv-card textarea { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: 11.5px; background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; padding: 6px; resize: vertical; }
+.csv-row { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin-top: 8px; font-size: 12px; color: var(--ink-2); }
+.csv-row input[type=number] { width: 64px; }
+.csv-row input, .csv-row select { font: inherit; background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 5px; padding: 2px 4px; }
+#csvMsg.err { color: var(--crit, #d03b3b); }
